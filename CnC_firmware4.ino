@@ -4629,8 +4629,24 @@ void BridgeCommon(uint8_t swPin, boolean* swFlag, unsigned long* swT,
   // hidlampa amugy is pontosan multiball alatt eg, de a multiball == 0
   // kiirasa a szandekot rogziti, nem erre az egybeesesre tamaszkodik.
   if (*active == LOW && multiball == 0) {
-    leds[ledActA] = CRGB::Black;
-    leds[ledActB] = CRGB::Black;
+    // A *comboReadT a TARSHID utolso talalatanak ideje, ezert amig az 5,5
+    // mp-es ablak nyitva van, EZ a hid a kombo folytatasa - mutassuk is meg,
+    // hogy a jatekos lassa, hova kell lonie. A szin szandekosan mas, mint a
+    // jackpot-hid zold-sargaja es a loop-kombo feher-magentaja.
+    Blinktimer();
+    // Hurry Up alatt a hid fix osszeget fizet es a kombo-agat at sem lepjuk,
+    // ezert ott a nyil hivogatna egy nem letezo kombora.
+    const boolean comboNext =
+        (hurryUp == LOW && *comboReadT != 0 &&
+         millis() - *comboReadT < BRIDGE_COMBO_WINDOW_MS);
+    if (comboNext) {
+      leds[ledActA] = (ledState == HIGH) ? CRGB::Aqua : CRGB::Black;
+      leds[ledActB] = (ledState == HIGH) ? CRGB::Black : CRGB::Aqua;
+    }
+    else {
+      leds[ledActA] = CRGB::Black;
+      leds[ledActB] = CRGB::Black;
+    }
 
     if (SimDigitalRead(swPin) == LOW && *swFlag == 0) {
       *swFlag = 1;
