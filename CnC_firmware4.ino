@@ -4003,6 +4003,98 @@ void weedmetersend() {
 /////////////////////////////////////////////////
 
 
+// Az UFO-lotto sorsolt jutalmanak PREZENTACIOJA: hang, bemondas, video es
+// fenyeffekt. Az UFOO()-bol emelve ki, ahol harom egymasba agyazott idozito
+// alatt ult egy 332 soros fuggvenyben - a tartalma valtozatlan.
+void AwardUfoLottery() {
+  if (lottery  == 1) {    /// ExtraBall
+    wTrig.trackPlayPoly(TRK_FIREWORK);
+    PlayBakedEffectOnce(16); // intro + loop + cooldown, egyszer
+  }
+  if (lottery  == 2) {    /// HurryUp
+    wTrig.trackPlayPoly(TRK_FIREWORK);
+    hurryUp = HIGH;
+    hurryUpTimer = millis();
+    // A GUI ebbol rakja ki a lukteto "2X"-et es a visszaszamlalot.
+    Serial.print("HurryUp,");
+    Serial.println(HURRY_UP_DURATION_MS / 1000UL);
+    StopFullBakedEffect(); // az UFO lottery full effektje leall
+    StartHurryUpBakedOverlay(); // ID6 atlatszo legfelso retegkent marad
+    runLightStartLed = 68;
+    initlight = HIGH;
+    Initlights();
+    ResetHurryUpLights();
+    spinnersw = 2;
+    ufosw = 0;
+  }
+  if (lottery  == 3) {    /// 15000
+    wTrig.trackPlayPoly(TRK_FIREWORK);
+    PlaySpeechRange(TRK_VO_UFO_CASHOUT_15000_A);
+  }
+  if (lottery  == 4) {    /// 20000
+    wTrig.trackPlayPoly(TRK_FIREWORK);
+    PlaySpeechRange(TRK_VO_UFO_CASHOUT_20000_A);
+  }
+  if (lottery  == 6) {    /// 25000
+    wTrig.trackPlayPoly(TRK_FIREWORK);
+    PlaySpeechRange(TRK_VO_UFO_CASHOUT_25000_A);
+  }
+  if (lottery  == 5) {    /// 30000
+    wTrig.trackPlayPoly(TRK_FIREWORK);
+    PlaySpeechRange(TRK_VO_UFO_CASHOUT_30000_A);
+  }
+  // A negy sima pont-kifizetesnek nincs sajat mondanivaloja, de a
+  // tobbi jutalom mellett furcsa a sotetseg -> kozos strobe.
+  if (lottery >= 3 && lottery <= 6) {
+    PlayBakedEffectOnce(17);
+  }
+  if (lottery  == 7) {    /// SpaceCoke Multi
+    BIP = 5;
+    multiball = 5;
+    // Az Ufo9 video mar a belepeskor lement; a fenyeffekt ITT indul,
+    // a multiball tenyleges kezdetekor.
+    PlayBakedEffectOnce(14);
+    // Ide korabban ID4 (UFO FUCK) jott, de az mostmar kizarolag a
+    // UFO-no-weed esemenye. Egyelore nincs baked effekt -> tegyunk ide
+    // masikat, ha kell (multiball-start).
+    PlaySpeechRange(TRK_VO_UFO_SPACE_COKE_START_A);
+    wTrig.trackPlayPoly(TRK_FIREWORK);
+    wTrig.trackPlayPoly(TRK_MUS_SPACECOKE);
+    wTrig.trackPlayPoly(TRK_CHEECH_SPACECOKE); // filmes Cheech-orditas
+    ufosw = 0;
+    spinnersw = 2;
+    BrdgLowActive = HIGH;
+    BrdgHighActive = HIGH;
+  }
+  if (lottery  == 8) {    /// Pontlopas (Ufo10..13)
+    wTrig.trackPlayPoly(TRK_FIREWORK); // Firework
+    wTrig.trackPlayPoly(TRK_COLLECT + ufoMinus); // 124..127 = kirabolt jatekos hangja
+    PlayBakedEffectOnce(17);
+    ufoMinus = 0;
+  }
+  if (lottery == 10) {    /// Extra Ball Lit (Ufo8)
+    wTrig.trackPlayPoly(TRK_FIREWORK);
+    PlaySpeechRange(TRK_VO_UFO_EXTRA_BALL_LIT_A);
+    PlayBakedEffectOnce(17); // a KIGYUJTAS; a beszedes az ID16-ot kapja
+  }
+}
+
+// A lotto utani zene: a Hurry Up sajat savot kap, minden mas jutalom utan a
+// fotema folytatodik. A 7-es (SpaceCoke) egyik listaban sincs - ott a
+// multiball sajat zeneje szol tovabb.
+void ResumeUfoLotteryAudio() {
+  if (lottery == 2) {
+    wTrig.trackPlayPoly(TRK_MUS_HURRY);
+    wTrig.trackPlayPoly(TRK_SHOOTOUTUFO);
+  }
+  if (lottery == 1 || lottery == 3 || lottery == 4 || lottery == 5 ||
+      lottery == 6 || lottery == 8 || lottery == 10)
+  {
+    wTrig.trackResume(TRK_THEME);
+    wTrig.trackPlayPoly(TRK_SHOOTOUTUFO);
+  }
+}
+
 void UFOO() {
   unsigned long now = millis();
   if (ufoWheelWaiting) {
@@ -4165,76 +4257,7 @@ void UFOO() {
     if (millis() - 50 > ufoshoottimer + UFO_LOTTERY_HOLD_MS) {
       digitalWrite(ufoCoil, LOW);
       if (millis() - 700 > ufoshoottimer + 4000) {
-        if (lottery  == 1) {    /// ExtraBall
-          wTrig.trackPlayPoly(TRK_FIREWORK);
-          PlayBakedEffectOnce(16); // intro + loop + cooldown, egyszer
-        }
-        if (lottery  == 2) {    /// HurryUp
-          wTrig.trackPlayPoly(TRK_FIREWORK);
-          hurryUp = HIGH;
-          hurryUpTimer = millis();
-          // A GUI ebbol rakja ki a lukteto "2X"-et es a visszaszamlalot.
-          Serial.print("HurryUp,");
-          Serial.println(HURRY_UP_DURATION_MS / 1000UL);
-          StopFullBakedEffect(); // az UFO lottery full effektje leall
-          StartHurryUpBakedOverlay(); // ID6 atlatszo legfelso retegkent marad
-          runLightStartLed = 68;
-          initlight = HIGH;
-          Initlights();
-          ResetHurryUpLights();
-          spinnersw = 2;
-          ufosw = 0;
-        }
-        if (lottery  == 3) {    /// 15000
-          wTrig.trackPlayPoly(TRK_FIREWORK);
-          PlaySpeechRange(TRK_VO_UFO_CASHOUT_15000_A);
-        }
-        if (lottery  == 4) {    /// 20000
-          wTrig.trackPlayPoly(TRK_FIREWORK);
-          PlaySpeechRange(TRK_VO_UFO_CASHOUT_20000_A);
-        }
-        if (lottery  == 6) {    /// 25000
-          wTrig.trackPlayPoly(TRK_FIREWORK);
-          PlaySpeechRange(TRK_VO_UFO_CASHOUT_25000_A);
-        }
-        if (lottery  == 5) {    /// 30000
-          wTrig.trackPlayPoly(TRK_FIREWORK);
-          PlaySpeechRange(TRK_VO_UFO_CASHOUT_30000_A);
-        }
-        // A negy sima pont-kifizetesnek nincs sajat mondanivaloja, de a
-        // tobbi jutalom mellett furcsa a sotetseg -> kozos strobe.
-        if (lottery >= 3 && lottery <= 6) {
-          PlayBakedEffectOnce(17);
-        }
-        if (lottery  == 7) {    /// SpaceCoke Multi
-          BIP = 5;
-          multiball = 5;
-          // Az Ufo9 video mar a belepeskor lement; a fenyeffekt ITT indul,
-          // a multiball tenyleges kezdetekor.
-          PlayBakedEffectOnce(14);
-          // Ide korabban ID4 (UFO FUCK) jott, de az mostmar kizarolag a
-          // UFO-no-weed esemenye. Egyelore nincs baked effekt -> tegyunk ide
-          // masikat, ha kell (multiball-start).
-          PlaySpeechRange(TRK_VO_UFO_SPACE_COKE_START_A);
-          wTrig.trackPlayPoly(TRK_FIREWORK);
-          wTrig.trackPlayPoly(TRK_MUS_SPACECOKE);
-          wTrig.trackPlayPoly(TRK_CHEECH_SPACECOKE); // filmes Cheech-orditas
-          ufosw = 0;
-          spinnersw = 2;
-          BrdgLowActive = HIGH;
-          BrdgHighActive = HIGH;
-        }
-        if (lottery  == 8) {    /// Pontlopas (Ufo10..13)
-          wTrig.trackPlayPoly(TRK_FIREWORK); // Firework
-          wTrig.trackPlayPoly(TRK_COLLECT + ufoMinus); // 124..127 = kirabolt jatekos hangja
-          PlayBakedEffectOnce(17);
-          ufoMinus = 0;
-        }
-        if (lottery == 10) {    /// Extra Ball Lit (Ufo8)
-          wTrig.trackPlayPoly(TRK_FIREWORK);
-          PlaySpeechRange(TRK_VO_UFO_EXTRA_BALL_LIT_A);
-          PlayBakedEffectOnce(17); // a KIGYUJTAS; a beszedes az ID16-ot kapja
-        }
+        AwardUfoLottery();
 
 
         runLightStartLed = 68;
@@ -4242,16 +4265,7 @@ void UFOO() {
         Initlights();
         ufoshoot = 0;
 
-        if (lottery == 2) {
-          wTrig.trackPlayPoly(TRK_MUS_HURRY);
-          wTrig.trackPlayPoly(TRK_SHOOTOUTUFO);
-        }
-        if (lottery == 1 || lottery == 3 || lottery == 4 || lottery == 5 ||
-            lottery == 6 || lottery == 8 || lottery == 10)
-        {
-          wTrig.trackResume(TRK_THEME);
-          wTrig.trackPlayPoly(TRK_SHOOTOUTUFO);
-        }
+        ResumeUfoLotteryAudio();
         ufosw = 0;
       }
     }
