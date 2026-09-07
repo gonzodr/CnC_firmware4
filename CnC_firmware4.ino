@@ -4584,7 +4584,11 @@ void BridgeCommon(uint8_t swPin, boolean* swFlag, unsigned long* swT,
                   uint8_t comboEffectId, boolean suppressFeedback,
                   const unsigned long* jpScr, const unsigned long* jpBns,
                   boolean armsLoopCombo) {
-  if (*active == LOW) {
+  // A hid-kombo SZANDEKOSAN csak multiballon kivul el: azert van, hogy
+  // multiball nelkul is lehessen skill-lovesekbol pontot gyujteni. Ma a
+  // hidlampa amugy is pontosan multiball alatt eg, de a multiball == 0
+  // kiirasa a szandekot rogziti, nem erre az egybeesesre tamaszkodik.
+  if (*active == LOW && multiball == 0) {
     leds[ledActA] = CRGB::Black;
     leds[ledActB] = CRGB::Black;
 
