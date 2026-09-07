@@ -128,9 +128,33 @@ uint16_t bakedCurrentFrame(const EffectDef& e, unsigned long startT, bool& done)
 // Az ID -> tomb cim kapcsolot az editor generalja az effect_data.h-ba, igy
 // uj vagy atnevezett effekt utan nem maradhat itt elavult kezi switch tabla.
 static inline uint_farptr_t bakedFramePtr(const EffectDef& e, uint16_t frame) {
+#if defined(FX_FRAME_CODEC) && FX_FRAME_CODEC == 1
+  uint_farptr_t base = bakedEffectFarAddress(e.id);
+  uint_farptr_t entry = base + (uint32_t)frame * 2;
+  return base + (uint16_t)(fx_read(entry) | ((uint16_t)fx_read(entry + 1) << 8));
+#else
   return bakedEffectFarAddress(e.id) +
          (uint32_t)frame * EFFECT_LEDS * 3UL;
+#endif
 }
+
+// Streaming decoder: no frame buffer, no dependency on previous frames.
+struct BakedReader {
+  uint_farptr_t p;
+  uint8_t mode, remaining, r, g, b;
+  BakedReader(uint_farptr_t address) : p(address), mode(0), remaining(0) {
+#if defined(FX_FRAME_CODEC) && FX_FRAME_CODEC == 1
+    mode = fx_read(p++);
+#endif
+  }
+  void next() {
+    if (remaining == 0) {
+      remaining = mode == 1 ? fx_read(p++) : 1;
+      r = fx_read(p++); g = fx_read(p++); b = fx_read(p++);
+    }
+    --remaining;
+  }
+};
 
 // FULL effekt: az egesz palyat felulirja (a (0,0,0) is fekete lesz).
 void RunBakedEffect(uint8_t idx) {
@@ -155,14 +179,14 @@ void RunBakedEffect(uint8_t idx) {
       return;
     }
   }
-  uint_farptr_t p = bakedFramePtr(e, frame);
+  BakedReader reader(bakedFramePtr(e, frame));
   for (uint8_t i = 0; i < EFFECT_LEDS; i++) {
     // A baked adat R,G,B sorrendben all, de ezen a szalagon a baked szineknel
     // a G es B csatorna fel van cserelve (piros->pink, zold->vilagoskek volt),
     // ezert G/B cserevel irjuk ki: CRGB(R, B, G). A normal jatekfenyeket ez
     // NEM erinti (azok kulon, a helyukon vannak).
-    leds[i] = CRGB(fx_g(p), fx_g(p + 1), fx_g(p + 2)); // gamma-korrekcio
-    p += 3;
+    reader.next();
+    leds[i] = CRGB(gam(reader.r), gam(reader.g), gam(reader.b));
   }
 }
 
@@ -272,15 +296,15 @@ void RunOverlayEffect() {
   uint16_t frame = bakedCurrentFrame(e, overlayStartT, done);
   if (done) { overlayIdx = -1; return; } // vege - a jatek-feny megy tovabb
 
-  uint_farptr_t p = bakedFramePtr(e, frame);
+  BakedReader reader(bakedFramePtr(e, frame));
   for (uint8_t i = 0; i < EFFECT_LEDS; i++) {
-    uint8_t r = fx_read(p), g = fx_read(p + 1), b = fx_read(p + 2);
+    reader.next();
+    uint8_t r = reader.r, g = reader.g, b = reader.b;
     // magenta (255,0,255) = ATLATSZO -> kihagyjuk (a jatek latszik alatta).
     // minden mas rajzolodik, a (0,0,0) fekete is (elsotetit)!
     if (!(r == FX_TR_R && g == FX_TR_G && b == FX_TR_B)) {
       leds[i] = CRGB(gam(r), gam(g), gam(b)); // gamma-korrekcio
     }
-    p += 3;
   }
 }
 
@@ -316,15 +340,15 @@ void RunHurryUpBakedOverlay() {
     frame = bakedCurrentFrame(e, hurryOverlayStartT, done);
   }
 
-  uint_farptr_t p = bakedFramePtr(e, frame);
+  BakedReader reader(bakedFramePtr(e, frame));
   for (uint8_t i = 0; i < EFFECT_LEDS; i++) {
-    uint8_t r = fx_read(p), g = fx_read(p + 1), b = fx_read(p + 2);
+    reader.next();
+    uint8_t r = reader.r, g = reader.g, b = reader.b;
     boolean transparentSentinel = (r == FX_TR_R && g == FX_TR_G && b == FX_TR_B);
     boolean legacyBlack = (r == 0 && g == 0 && b == 0);
     if (!transparentSentinel && !legacyBlack) {
       leds[i] = CRGB(gam(r), gam(g), gam(b));
     }
-    p += 3;
   }
 }
 
@@ -394,11 +418,11 @@ void RunLightTest() {
     frame = 0;
   }
   for (uint8_t i = 0; i < EFFECT_LEDS; i++) leds[i] = CRGB::Black;
-  uint_farptr_t p = bakedFramePtr(e, frame);
+  BakedReader reader(bakedFramePtr(e, frame));
   for (uint8_t i = 0; i < EFFECT_LEDS; i++) {
-    uint8_t r = fx_read(p), g = fx_read(p + 1), b = fx_read(p + 2);
+    reader.next();
+    uint8_t r = reader.r, g = reader.g, b = reader.b;
     if (!(r == FX_TR_R && g == FX_TR_G && b == FX_TR_B)) leds[i] = CRGB(gam(r), gam(g), gam(b)); // gamma-korrekcio
-    p += 3;
   }
 }
 

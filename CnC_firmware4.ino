@@ -32,6 +32,7 @@
 // Hurry Up mode - 4550
 // Tilt - 4610
 
+#define FX_CODEC_SUPPORTED 1
 #include <FastLED.h>          // For the leds
 #include <Wire.h>             // For send data to Servo UNO
 #include "wavTrigger.h"       // Repo-local, fix Serial1 backend (TX1=18, RX1=19)
@@ -985,11 +986,23 @@ void loop() {
       HurryUp();
       Tilt();
       GiftRunlight();     // gift-fazis futofeny az inaktiv postokon (Weed/CnC/Fishtank UTAN!)
+#ifdef FX_PROFILE
+      unsigned long fxProfileStart = micros();
+#endif
       RunOverlayEffect(); // overlay/canvas effekt: rarajzol a jatek-fenyre (subsystemek UTAN!)
       RunLightEffect();   // full fenyeffekt-motor (effect == HIGH eseten atveszi a palyat)
       RunUfoWheelChaseLights(); // a Wheel szines pixelei ALATT latszo korbefuto fenynyalab
       RunHurryUpLights(); // proceduralis chase + lassan kihunyo talalati retegek
       RunHurryUpBakedOverlay(); // ID6 legfelso reteg; fekete/magenta = atlatszo
+#ifdef FX_PROFILE
+      static unsigned long fxProfileMax = 0, fxProfileReport = 0;
+      unsigned long fxProfileElapsed = micros() - fxProfileStart;
+      if (fxProfileElapsed > fxProfileMax) fxProfileMax = fxProfileElapsed;
+      if (millis() - fxProfileReport >= 1000UL) {
+        Serial.print("FX_US_MAX,"); Serial.println(fxProfileMax);
+        fxProfileMax = 0; fxProfileReport = millis();
+      }
+#endif
     }
   }
 
