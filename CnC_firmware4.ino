@@ -741,7 +741,10 @@ int weedblastcounter = 0;
 int looplightcounter = 0;
 int feny[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 int hurryhitcounter = 0;
-int fasz = 0;         // Led start at fasz
+// A palettas futofeny elso LED-je: 0, ha a teljes also szalagot festi,
+// 68, ha egy baked effekt hasznalja a 0-67 tartomanyt es a futofeny
+// csak a folso szalagon (68-114) marad. Regi neve 'fasz' volt.
+int runLightStartLed = 0;
 int randGift = 0;
 int resetTimer = 0;
 
@@ -1039,11 +1042,11 @@ void loop() {
     static int startIndex = 0;
     startIndex = startIndex + 1; /* motion speed */
 
-    // A palettas futofeny mindig fut. effect==LOW: a fasz-tol (0 vagy 68 a
+    // A palettas futofeny mindig fut. effect==LOW: a runLightStartLed-tol (0 vagy 68 a
     // jatekallapottol fuggoen). effect==HIGH: a baked effekt birtokolja a
     // 0-67-et, de a 68-114 felso szalag TOVABB fut (start = 68), hogy ne
     // alljon meg a baked animacio ~masodpercei alatt.
-    FillLEDsFromPaletteColors(startIndex, (effect == LOW) ? fasz : 68);
+    FillLEDsFromPaletteColors(startIndex, (effect == LOW) ? runLightStartLed : 68);
   }
   RunMunchiesLights(); // minijatek alatt a legutolso jatekfeny-reteg
   RunLightTest(); // szerviz-menu light test: ha aktiv, feluliria a leds[]-et (loopolva, csak vizualis)
@@ -1774,7 +1777,7 @@ const TProgmemPalette16 myRedWhiteBluePalette_p PROGMEM =
 
 void intmMode() {
   if (intmon == 1) {
-    fasz = 0;
+    runLightStartLed = 0;
     ChangePalettePeriodically();
     incomeMsg = " ";
       
@@ -1852,7 +1855,7 @@ void intmMode() {
       Serial.println("Zero");
       delay(300);
       intmon = 0;
-      fasz = 68;
+      runLightStartLed = 68;
       ball = 1;
       player = 1;
       firstplay = HIGH;
@@ -2472,7 +2475,7 @@ void StartUfoLotteryVisuals() {
   // UFO Lottery (weed kigyujtve): baked ID2 a 0-67-en, felul palettas feny.
   effect = HIGH;
   effectID = 2;
-  fasz = 68;
+  runLightStartLed = 68;
   SetupPurpleAndGreenPalette();
 }
 
@@ -2691,7 +2694,7 @@ void Initlights() {
     leds[LED_POP2] = CRGB::Blue; // Pop2
     leds[LED_POP3] = CRGB::Blue; // Pop3
     leds[LED_CAR_AMBIENT] = CRGB::Yellow; // Car ambient
-    fasz = 68;
+    runLightStartLed = 68;
     currentPalette = RainbowColors_p;
     initlight = 0;
   }
@@ -4175,7 +4178,7 @@ void UFOO() {
           Serial.println(HURRY_UP_DURATION_MS / 1000UL);
           StopFullBakedEffect(); // az UFO lottery full effektje leall
           StartHurryUpBakedOverlay(); // ID6 atlatszo legfelso retegkent marad
-          fasz = 68;
+          runLightStartLed = 68;
           initlight = HIGH;
           Initlights();
           ResetHurryUpLights();
@@ -4234,7 +4237,7 @@ void UFOO() {
         }
 
 
-        fasz = 68;
+        runLightStartLed = 68;
         initlight = 1;
         Initlights();
         ufoshoot = 0;
@@ -4946,7 +4949,7 @@ void HurryUp()
     StopHurryUpBakedOverlay();
     initlight = HIGH;
     Initlights();
-    fasz = 68;
+    runLightStartLed = 68;
     wTrig.trackPause(TRK_MUS_HURRY);
     wTrig.trackResume(TRK_THEME);
     RestorePartyShotsForPlayer();
