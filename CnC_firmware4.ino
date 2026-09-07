@@ -402,13 +402,52 @@ boolean BrdgHighSw = 0;
 boolean BrdgLowActive = 0;
 boolean BrdgLowSw = 0;
 // Integers
+/////////////////////////////////////////////////////////////////
+// MOD-ALLAPOT
+//
+// Ez a nyolc valtozo donti el, melyik mod fut. Korabban 400 sornyi
+// deklaracio kozott voltak szetszorva (411..769), holott csak egyutt
+// ertelmesek - a modok kizarasai ugyanis nincsenek egy helyen kimondva.
+//
+//   multiball     0 = nincs, 1-4 = weed multiball szintek, 5 = SpaceCoke
+//   hurryUp       a 60 mp-es 2X mod
+//   ufosw         a UFO el: a kovetkezo beeses lottot sorsol
+//   spinnersw     0 = ki, 1 = weed megvan (multiball-mero el), 2 = mod fut
+//   multiloopsw   loop-jackpot elarmozva (multiballonkent egyszeri)
+//   highLoopArmT  a nagyhid utolso jackpotjanak ideje; 0 = nincs armozva
+//   lottery       az utolso sorsolas eredmenye, 1-10
+//   ufoshoot      a UFO kidobo-allapotgepe, 0-5
+//
+// A HURRY UP ES A MULTIBALL SOSEM FEDI EGYMAST. Ez nem egyetlen
+// feltetelbol jon, hanem haromnak az egyutthatasabol - ezert nehez
+// visszakeresni, es ezert all itt:
+//   1. A lottot egyetlen helyen sorsoljuk (UFOO), `ufosw == 1 &&
+//      multiball == 0` mellett. A Hurry Up (lottery 2) es a SpaceCoke
+//      (lottery 7) is CSAK innen johet -> multiball alatt egyik sem indul.
+//   2. A sorsolas azonnal ConsumeUfoPartyReward()-ot hiv, ami feltetel
+//      nelkul nullazza az ufosw-t ES a spinnersw-t.
+//   3. A weed begyujtese csak `multiball == 0 && hurryUp == LOW` mellett
+//      allitja vissza oket (Weed) -> Hurry Up alatt mindketto 0 marad,
+//      igy sem uj lotto nincs, sem a weed-multiball szintlepes (ami
+//      `spinnersw == 1`-hez kotott) nem tud elindulni.
+// Kovetkezmeny: multiball-jackpot sosem kap Hurry Up-os duplazast, tehat
+// a jackpot-szintlista teteje (200000) a valos maximum.
+/////////////////////////////////////////////////////////////////
+int multiball = 0;
+boolean hurryUp = LOW;
+boolean ufosw = 0;
+int spinnersw = 0;
+boolean multiloopsw = LOW;
+unsigned long highLoopArmT = 0;
+int lottery = 0;
+int ufoshoot = 0;
+/////////////////////////////////////////////////////////////////
+
 int BridgeLowEffcounter = 0;
 int comboCounter = 0;
 // Timers
 unsigned long comboTimerH = 0;
 unsigned long comboTimerL = 0;
-// A nagyhid utolso jackpot-talalatanak ideje; 0 = nincs elarmozva.
-unsigned long highLoopArmT = 0;
 unsigned long BrdgLowT = 0;
 unsigned long BrdgHighT = 0;
 /////////////////////////////////////////////////////////////////
@@ -516,7 +555,6 @@ int cigar = 0;
 // Booleans
 boolean weedspsw = LOW;
 // Integers
-int spinnersw = 0;
 /////////////////////////////////////////////////////////////////
 
 /////////////////////////////////////////////////////////////////
@@ -571,7 +609,6 @@ int ball5 = 0;
 int ballsavetime = 15000;
 int extraball = 0;
 boolean extraBallLit = LOW;
-int multiball = 0;
 // A szenzoronkenti kuszobok a h_analog_test.ino-ban elnek (EEPROM-bol
 // toltve). Az Arduino preprocesszor csak FUGGVENY-prototipust general
 // automatikusan, valtozohoz nem - a .ino-k osszefuzesekor pedig ez a fajl
@@ -643,12 +680,9 @@ const unsigned long SHOOTER_LANE_REKICK_MS = 1000UL;
 // Pins
 int ufoCoil = 37; // output ufo
 // Booleans
-boolean ufosw = 0;
 boolean ufoInactivesw = 0;
 boolean ufoEjectSaveStarted = LOW;
 // Integers
-int lottery = 0;
-int ufoshoot = 0;
 int ufoanalog = 0;
 int ufoMinus = 0; // pontlopasnal (lottery 8): a kirabolt jatekos sorszama
 enum UfoPartyTier : uint8_t {
@@ -760,13 +794,11 @@ boolean sltimesw = LOW;
 boolean weedtableindicator = LOW;
 boolean effect = LOW;
 boolean effectState = LOW;
-boolean multiloopsw = LOW;
 boolean addPlayersw = LOW;
 boolean lfHscSw = 0;
 boolean rfHscSw = 0;
 boolean shHscSw = 0;
 boolean stHscSw = 0;
-boolean hurryUp = LOW;
 boolean hurryUpState = LOW;
 enum HurryLightZone : uint8_t {
   HURRY_ZONE_CNC = 0,
