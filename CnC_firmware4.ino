@@ -286,6 +286,16 @@ namespace Scoring {
   const unsigned long COLLECTIBLE_POINTS[3] = { 10000UL, 15000UL, 20000UL };
   const unsigned int  COLLECTIBLE_BONUS[3] = { 500U, 1000U, 2000U };
 
+  // A letezo jackpot-osszegek: mindegyikhez van klip az assets/Videos alatt
+  // es bemondas a firmware-ben. A Hurry Up duplazasa nem mindig esik a
+  // keszletre (20000-bol 40000, 30000-bol 60000 lenne), ezert a
+  // JackpotScorePoints felfele igazit a legkozelebbi letezo osszegre. A
+  // regi, kezzel beirt 40000/60000 eset ennek volt ket peldanya - azok az
+  // int-korszakbol maradtak, es most kikerultek.
+  const unsigned long JACKPOT_TIERS[8] = {
+    10000UL, 15000UL, 20000UL, 25000UL, 30000UL, 50000UL, 100000UL, 200000UL
+  };
+
   const unsigned long COMBO_POINTS[6] = {
     2500UL, 5000UL, 7500UL, 10000UL, 15000UL, 20000UL
   };
@@ -2097,12 +2107,15 @@ unsigned long DirectScorePoints(unsigned long basePoints) {
 }
 
 unsigned long JackpotScorePoints(unsigned long basePoints) {
-  unsigned long points = DirectScorePoints(basePoints);
-  // Jackpot-specifikus emeles a szorzo UTAN: a video es a jovairas egyezik.
-  // A tobbi pontforras Hurry Up alatt tovabbra is pontosan 2x marad.
-  if (points == 40000UL) return 50000UL;
-  if (points == 60000UL) return 100000UL;
-  return points;
+  const unsigned long points = DirectScorePoints(basePoints);
+  // A szorzo UTAN igazitunk, hogy a video, a bemondas es a jovairas ugyanazt
+  // az osszeget mondja. Felfele lepunk a legkozelebbi letezo szintre; a
+  // keszlet teteje egyben plafon is, kulonben a SpaceCoke-kombo Hurry Up
+  // alatti 400000-e klip nelkul maradna.
+  for (uint8_t i = 0; i < 8; i++) {
+    if (Scoring::JACKPOT_TIERS[i] >= points) return Scoring::JACKPOT_TIERS[i];
+  }
+  return Scoring::JACKPOT_TIERS[7];
 }
 
 void PlayJackpotFeedback(unsigned long basePoints) {
