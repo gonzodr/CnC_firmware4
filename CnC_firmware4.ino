@@ -244,7 +244,12 @@ namespace Scoring {
   const unsigned int  CNC_COMPLETE_BONUS = 500U;
   const unsigned long WEED_LETTER_POINTS = 1000UL;
   const unsigned int  WEED_LETTER_BONUS = 50U;
-  const unsigned long WEED_COMPLETE_POINTS = 5000UL;
+  // A WEED befejezese multiball-szintenkent tobbet er. Multiball alatt a
+  // negy celpont 1-2 masodpercenkent ujra osszejon, ezert szandekosan vegig
+  // a hid jackpotja alatt marad: a kezdo is kap folyamatosan pontot, de a
+  // hid egyetlen lovesert 3-4x ennyit ad, tehat nem lesz belole pontfarm.
+  //                                          mb:    0     1     2      3      4      5
+  const unsigned long WEED_COMPLETE_POINTS[6] = { 5000, 6000, 8000, 10000, 12000, 15000 };
   const unsigned int  WEED_COMPLETE_BONUS = 500U;
   const unsigned long FISHTANK_TARGET_POINTS = 1500UL;
   const unsigned int  FISHTANK_TARGET_BONUS = 50U;
@@ -3120,20 +3125,26 @@ void Weed() {
   if (*wsw[0] == 1 && *wsw[1] == 1 && *wsw[2] == 1 && *wsw[3] == 1 && weedoff == 0) {
     weedtimer = millis();
     weedoff = 1;
-    effect = HIGH;
-    effectID = 5; // Weedblast - a weed kigyulesekor (korabban ID3 volt)
-    boolean canChoosePartyShot =
-      (beerCredits[player] > 0 && jointStack[player] < 3);
-    PlaySpeechRange(canChoosePartyShot
-                      ? TRK_VO_UFO_WEED_CHOOSE_A
-                      : TRK_VO_UFO_WEED_NEED_BEER_A);
-    Serial.println("Weed");
     weedQualified[player] = HIGH;
-    if (multiball == 0 && hurryUp == LOW) {
-      ufosw = 1;
-      spinnersw = 1;
+    // A prezentacio CSAK multiballon kivul megy. Multiball alatt a negy
+    // celpont par masodpercenkent ujra osszejon, es az effekt/bemondas/video
+    // ismetlese idegesito - a bemondas ott ertelmetlen is, mert jointot
+    // multiball alatt ugysem lehet sodorni (lasd RollJointLit).
+    if (multiball == 0) {
+      effect = HIGH;
+      effectID = 5; // Weedblast - a weed kigyulesekor (korabban ID3 volt)
+      boolean canChoosePartyShot =
+        (beerCredits[player] > 0 && jointStack[player] < 3);
+      PlaySpeechRange(canChoosePartyShot
+                        ? TRK_VO_UFO_WEED_CHOOSE_A
+                        : TRK_VO_UFO_WEED_NEED_BEER_A);
+      Serial.println("Weed");
+      if (hurryUp == LOW) {
+        ufosw = 1;
+        spinnersw = 1;
+      }
+      SendPartyEvent(canChoosePartyShot ? "CHOOSE" : "NEED_BEER");
     }
-    SendPartyEvent(canChoosePartyShot ? "CHOOSE" : "NEED_BEER");
     SendPartyState();
     delay(10);
   }
@@ -3157,7 +3168,7 @@ void Weed() {
       weedswitch3 = 0;
       weedswitch4 = 0;
       weedoff = 0;
-      Score(Scoring::WEED_COMPLETE_POINTS, Scoring::WEED_COMPLETE_BONUS);
+      Score(Scoring::WEED_COMPLETE_POINTS[multiball], Scoring::WEED_COMPLETE_BONUS);
     }
   }
 }
