@@ -257,7 +257,12 @@ namespace Scoring {
   const unsigned int  LOOP_BONUS = 250U;
   const unsigned long BRIDGE_POINTS = 1000UL;
   // Hurry Up alatt a hid alapja; a 2x szorzoval ez a kifizetett 10000.
-  const unsigned long HURRY_BRIDGE_POINTS = 5000UL;
+  // Hurry Up alatti fix kifizetesek. A Score() duplaz, ezert itt a FELE all:
+  // 7500 -> 15000 (kishid), 12500 -> 25000 (nagyhid), 15000 -> 30000 (loop).
+  // Ezekhez a sima pontozo videok mennek (Point5/7/8), nem a jackpot-klipek.
+  const unsigned long HURRY_BRIDGE_LOW_POINTS  = 7500UL;
+  const unsigned long HURRY_BRIDGE_HIGH_POINTS = 12500UL;
+  const unsigned long HURRY_LOOP_POINTS        = 15000UL;
   const unsigned int  BRIDGE_BONUS = 100U;
   const unsigned long INACTIVE_CHARACTER_POINTS = 200UL;
   const unsigned int  INACTIVE_CHARACTER_BONUS = 50U;
@@ -2960,6 +2965,13 @@ void Loopshoot() {
       if (multiloopsw == 1) {
         ScoreJackpot(Scoring::LOOP_JACKPOT_POINTS, Scoring::LOOP_JACKPOT_BONUS);
       }
+      else if (hurryUp == HIGH) {
+        // Hurry Up alatt a loop fix 30000-et fizet (15000 duplazva), a hozza
+        // tartozo sima pontozo videoval - jackpot-klip ide nem jar.
+        Score(Scoring::HURRY_LOOP_POINTS, Scoring::LOOP_BONUS);
+        Serial.println("Point8");
+        delay(20);
+      }
       else {
         Score(Scoring::LOOP_POINTS, Scoring::LOOP_BONUS);
         // sima felso loop: nincs baked effekt (az ID4/UFO FUCK mostmar
@@ -4583,7 +4595,8 @@ void BridgeCommon(uint8_t swPin, boolean* swFlag, unsigned long* swT,
                   uint8_t firstHitSound, const char* comboVideoPrefix,
                   uint8_t comboEffectId, boolean suppressFeedback,
                   const unsigned long* jpScr, const unsigned long* jpBns,
-                  boolean armsLoopCombo) {
+                  boolean armsLoopCombo,
+                  unsigned long hurryScr, const char* hurryVideo) {
   // A hid-kombo SZANDEKOSAN csak multiballon kivul el: azert van, hogy
   // multiball nelkul is lehessen skill-lovesekbol pontot gyujteni. Ma a
   // hidlampa amugy is pontosan multiball alatt eg, de a multiball == 0
@@ -4598,11 +4611,10 @@ void BridgeCommon(uint8_t swPin, boolean* swFlag, unsigned long* swT,
 
       if (hurryUp == HIGH) {
         // A Score() a Hurry Up alatt megduplazza a kozvetlen pontot, ezert
-        // az 5000-es alapbol jon ki a kiirt 10000 - ugyanaz a "2X", amit a
-        // GUI is mutat.
-        Score(Scoring::HURRY_BRIDGE_POINTS, Scoring::BRIDGE_BONUS);
-        // A kifizetett osszeghez tartozo video: Point4 -> a "10000" klip.
-        Serial.println("Point4");
+        // a hidankent atadott alap FELE a kiirt osszegnek - ugyanaz a "2X",
+        // amit a GUI is mutat.
+        Score(hurryScr, Scoring::BRIDGE_BONUS);
+        Serial.println(hurryVideo);
         delay(20);
       }
       else {
@@ -4737,7 +4749,8 @@ void BridgeLow() {
   static const unsigned long jpBns[6] = {  200,   200,   200,   200,   200,   200 };
   BridgeCommon(bridgeLowSwitch, &BrdgLowSw, &BrdgLowT, &BrdgLowActive,
                24, 25, 23, 17, &comboTimerH, &comboTimerL, 9,
-               "ComboChong", 9, false, jpScr, jpBns, false);
+               "ComboChong", 9, false, jpScr, jpBns, false,
+               Scoring::HURRY_BRIDGE_LOW_POINTS, "Point5");   // 15000
 }
 /////////////////////////////////////////////////
 /////////////////////////////////////////////////
@@ -4760,7 +4773,8 @@ void BridgeHigh() {
   boolean collectedExtraBall = CollectExtraBallLitAtHighRamp();
   BridgeCommon(bridgeHighSwitch, &BrdgHighSw, &BrdgHighT, &BrdgHighActive,
                36, 37, 50, 51, &comboTimerL, &comboTimerH, 36,
-               "ComboCheech", 10, collectedExtraBall, jpScr, jpBns, true);
+               "ComboCheech", 10, collectedExtraBall, jpScr, jpBns, true,
+               Scoring::HURRY_BRIDGE_HIGH_POINTS, "Point7");  // 25000
 }
 /////////////////////////////////////////////////
 /////////////////////////////////////////////////
