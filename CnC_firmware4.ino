@@ -2109,9 +2109,12 @@ unsigned long DirectScorePoints(unsigned long basePoints) {
 unsigned long JackpotScorePoints(unsigned long basePoints) {
   const unsigned long points = DirectScorePoints(basePoints);
   // A szorzo UTAN igazitunk, hogy a video, a bemondas es a jovairas ugyanazt
-  // az osszeget mondja. Felfele lepunk a legkozelebbi letezo szintre; a
-  // keszlet teteje egyben plafon is, kulonben a SpaceCoke-kombo Hurry Up
-  // alatti 400000-e klip nelkul maradna.
+  // az osszeget mondja. Felfele lepunk a legkozelebbi letezo szintre.
+  // A lista tetejere eses csak vedelem: a gyakorlatban a legnagyobb elerheto
+  // osszeg a 200000, mert a Hurry Up es a SpaceCoke kizarja egymast. A Hurry
+  // Up alatt a weed nem elesiti az UFO-t (ufosw ott nem lehet 1), igy a
+  // lottot sem lehet sorsolni, a 7-es (SpaceCoke) pedig csak onnan johet;
+  // forditva pedig a UFO-ag multiball == 0-hoz kotott.
   for (uint8_t i = 0; i < 8; i++) {
     if (Scoring::JACKPOT_TIERS[i] >= points) return Scoring::JACKPOT_TIERS[i];
   }
