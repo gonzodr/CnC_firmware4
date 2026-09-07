@@ -2418,15 +2418,10 @@ void SendUfoWheelStart() {
 void ApplyUfoLotteryEntryAward(boolean playLegacyVideo) {
   if (lottery == 1) {
     extraball = 1; // nem stackelunk egynel tobbet
-    if (playLegacyVideo) {
-      Serial.println("Ufo5");
-      delay(20);
-    }
-    else {
-      // Szoveges fallback az uj eredmenyvideo elkeszulteig. A kesobbi GUI
-      // a Wheel sequence utan, meg a WHEEL_DONE elott tudja lancolni a klipet.
-      SendPartyEvent("WHEEL_EXTRA_BALL");
-    }
+    // Az azonnali Extra Ball CSAK a ketjointos Feature Wheelbol johet, annak
+    // pedig sajat eredmenyklipje van (UfoWheel_ExtraBall), amit a GUI a kerek
+    // utan lancol. A regi "Ufo5" legacy trigger ezert kikerult.
+    SendPartyEvent("WHEEL_EXTRA_BALL");
   }
 
   if (lottery == 10) {
@@ -2440,15 +2435,17 @@ void ApplyUfoLotteryEntryAward(boolean playLegacyVideo) {
   if (lottery >= 2 && lottery <= 7) {
     static const unsigned long lotScr[6] = { 5000, 15000, 20000, 30000, 25000, 40000 };
     static const unsigned long lotBns[6] = {  100,   100,   150,   250,   250,  2000 };
-    static const char* const   lotVid[6] = { "Ufo7", "Ufo1", "Ufo2", "Ufo4", "Ufo3", "Ufo9" };
+    // A 0. hely (lottery 2 = Hurry Up) NULL: az csak a Feature Wheelbol jon,
+    // aminek sajat eredmenyklipje van, es a kerekes ut sosem kuld legacy
+    // videot. A tobbi index a sima cashout, illetve a Love Pack (Ufo9).
+    static const char* const   lotVid[6] = { NULL, "Ufo1", "Ufo2", "Ufo4", "Ufo3", "Ufo9" };
     Score(lotScr[lottery - 2], lotBns[lottery - 2]);
-    if (playLegacyVideo) {
+    if (lottery == 2) {
+      SendPartyEvent("WHEEL_HURRY_UP");
+    }
+    else if (playLegacyVideo) {
       Serial.println(lotVid[lottery - 2]);
       delay(20);
-    }
-    else if (lottery == 2) {
-      // Szoveges fallback az uj Hurry Up eredmenyvideo elkeszulteig.
-      SendPartyEvent("WHEEL_HURRY_UP");
     }
   }
 
