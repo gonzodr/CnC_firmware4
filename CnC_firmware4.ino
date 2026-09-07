@@ -271,6 +271,11 @@ namespace Scoring {
   const unsigned int  MULTIBALL_SPINNER_BONUS = 10U;
   const unsigned long LOOP_JACKPOT_POINTS = 30000UL;
   const unsigned int  LOOP_JACKPOT_BONUS = 2000U;
+  // Nagyhid utan azonnal loop: multiball-szinthez kotott nagy kifizetes.
+  // Csak olyan osszegek szerepelnek, amikhez van jackpot-video es -bemondas
+  // (a 200000-et a PsychedelicJackpot klip mutatja).
+  //                                           mb:  0      1      2      3       4       5
+  const unsigned long HIGH_LOOP_COMBO_SCR[6] = { 0, 25000, 30000, 50000, 100000, 200000 };
   const unsigned long UFO_EJECT_POINTS = 0UL;
   const unsigned int  UFO_EJECT_BONUS = 300U;
   const unsigned long COLLECTIBLE_POINTS[3] = { 10000UL, 15000UL, 20000UL };
@@ -287,6 +292,8 @@ namespace Scoring {
 const unsigned long DAVE_BALL_SAVE_MS = 10000UL;
 // Celzott híd-lovesre is maradjon ido: a regi 4 mp helyett 5,5 mp.
 const unsigned long BRIDGE_COMBO_WINDOW_MS = 5500UL;
+// A nagyhid->loop kombo SAJAT, a hidak kozti komboablaktol fuggetlen ideje.
+const unsigned long HIGH_LOOP_COMBO_WINDOW_MS = 5000UL;
 // Minden VUK-kidobas ugyanazt az 5 mp-es fizikai vedelmet kapja. A
 // SpaceCoke 30 mp-e kulon multiball-szabaly, nem erosebb UFO-jutalom.
 const unsigned long UFO_EJECT_BALL_SAVE_MS = 5000UL;
@@ -380,6 +387,8 @@ int comboCounter = 0;
 // Timers
 unsigned long comboTimerH = 0;
 unsigned long comboTimerL = 0;
+// A nagyhid utolso jackpot-talalatanak ideje; 0 = nincs elarmozva.
+unsigned long highLoopArmT = 0;
 unsigned long BrdgLowT = 0;
 unsigned long BrdgHighT = 0;
 /////////////////////////////////////////////////////////////////
@@ -1488,6 +1497,7 @@ void Multiball() {
     RestorePartyShotsForPlayer();
     SendPartyState();
     multiloopsw = 0;
+    highLoopArmT = 0;
     BIP = 1;
     BrdgLowActive = LOW;
     BrdgHighActive = LOW;
@@ -1997,6 +2007,7 @@ void inittable() {
     gatearr[3] = 0;
     BrdgLowActive = LOW;
     BrdgHighActive = LOW;
+    highLoopArmT = 0;
     bonusx1sw = 0;
     bonusx2sw = 0;
     bonusx3sw = 0;
@@ -2916,6 +2927,13 @@ void CnC() {
 /////////////////////////////////////////////////
 /////////////////////////////////////////////////
 
+// A nagyhid utan nyitva van-e meg a loop-ablak? Multiballhoz kotott, mert a
+// kifizetes-tabla is multiball-szintre indexel.
+boolean HighLoopComboArmed() {
+  return (multiball != 0 && highLoopArmT != 0 &&
+          millis() - highLoopArmT < HIGH_LOOP_COMBO_WINDOW_MS);
+}
+
 void Loopshoot() {
   if (SimDigitalRead(loopSwitchTop) == LOW && loopsw == LOW) {
     looptimer = millis();
@@ -2924,26 +2942,50 @@ void Loopshoot() {
     wTrig.trackPlayPoly(TRK_BANANA);
   }
   if (SimDigitalRead(loopSwitchSide) == LOW && millis() - 1000 < looptimer && loopsw == LOW) {
-    if (multiloopsw == 1) {
-      PlayJackpotFeedback(Scoring::LOOP_JACKPOT_POINTS);
-    }
-    wTrig.trackPlayPoly(TRK_BLOB);
-    if (multiloopsw == 1) {
-      ScoreJackpot(Scoring::LOOP_JACKPOT_POINTS, Scoring::LOOP_JACKPOT_BONUS);
+    if (HighLoopComboArmed()) {
+      // A nagyhid utani loop a sajat, multiball-szinthez kotott osszeget
+      // fizeti. Ez KIVALTJA a sima loop-jackpotot ugyanazon a lovesen, hogy
+      // ne fizessunk ketszer; a multiloopsw armozva marad egy kesobbi loopra.
+      const unsigned long combo = Scoring::HIGH_LOOP_COMBO_SCR[multiball];
+      PlayJackpotFeedback(combo);
+      wTrig.trackPlayPoly(TRK_BLOB);
+      ScoreJackpot(combo, Scoring::LOOP_JACKPOT_BONUS);
+      highLoopArmT = 0;
     }
     else {
-      Score(Scoring::LOOP_POINTS, Scoring::LOOP_BONUS);
-      // sima felso loop: nincs baked effekt (az ID4/UFO FUCK mostmar
-      // kizarolag a UFO-no-weed esemenye)
+      if (multiloopsw == 1) {
+        PlayJackpotFeedback(Scoring::LOOP_JACKPOT_POINTS);
+      }
+      wTrig.trackPlayPoly(TRK_BLOB);
+      if (multiloopsw == 1) {
+        ScoreJackpot(Scoring::LOOP_JACKPOT_POINTS, Scoring::LOOP_JACKPOT_BONUS);
+      }
+      else {
+        Score(Scoring::LOOP_POINTS, Scoring::LOOP_BONUS);
+        // sima felso loop: nincs baked effekt (az ID4/UFO FUCK mostmar
+        // kizarolag a UFO-no-weed esemenye)
+      }
+      multiloopsw = 0;
     }
     loopswt = millis();
     loopsw = HIGH;
-    multiloopsw = 0;
   }
   if (loopsw == HIGH && millis() - 100 > loopswt) {
     loopsw = LOW;
   }
-  if (multiloopsw == 1) {
+  // A nagyhid utani 5 mp-es ablak sajat, feher-magenta villogast kap, hogy
+  // meg lehessen kulonboztetni a sima loop-jackpot piros-sargajatol.
+  if (HighLoopComboArmed()) {
+    if (ledState == HIGH) {
+      leds[LED_LEFT_LOOP_1] = CRGB::White;
+      leds[LED_LEFT_LOOP_2] = CRGB::Magenta;
+    }
+    else {
+      leds[LED_LEFT_LOOP_1] = CRGB::Magenta;
+      leds[LED_LEFT_LOOP_2] = CRGB::White;
+    }
+  }
+  else if (multiloopsw == 1) {
     if (ledState == HIGH) {
       leds[LED_LEFT_LOOP_1] = CRGB::Red; // Left loop
       leds[LED_LEFT_LOOP_2] = CRGB::Yellow; // Left loop
@@ -2953,7 +2995,7 @@ void Loopshoot() {
       leds[LED_LEFT_LOOP_2] = CRGB::Red; // Left loop
     }
   }
-  if (multiloopsw == 0) {
+  else {
     leds[LED_LEFT_LOOP_1] = CRGB::Black; // Left loop
     leds[LED_LEFT_LOOP_2] = CRGB::Black; // Left loop
   }
@@ -4540,7 +4582,8 @@ void BridgeCommon(uint8_t swPin, boolean* swFlag, unsigned long* swT,
                   unsigned long* comboReadT, unsigned long* comboWriteT,
                   uint8_t firstHitSound, const char* comboVideoPrefix,
                   uint8_t comboEffectId, boolean suppressFeedback,
-                  const unsigned long* jpScr, const unsigned long* jpBns) {
+                  const unsigned long* jpScr, const unsigned long* jpBns,
+                  boolean armsLoopCombo) {
   if (*active == LOW) {
     leds[ledActA] = CRGB::Black;
     leds[ledActB] = CRGB::Black;
@@ -4627,6 +4670,8 @@ void BridgeCommon(uint8_t swPin, boolean* swFlag, unsigned long* swT,
       }
       else {
         ScoreJackpot(jpScr[multiball], jpBns[multiball]);
+        // Csak a nagyhid nyitja meg a loop-ablakot, es csak multiballban.
+        if (armsLoopCombo) highLoopArmT = millis();
       }
       if (suppressFeedback) {
         // Az EXTRA BALL collect video/callout elsoseget kap ugyanazon a lovesen.
@@ -4688,7 +4733,7 @@ void BridgeLow() {
   static const unsigned long jpBns[6] = {  200,   200,   200,   200,   200,   200 };
   BridgeCommon(bridgeLowSwitch, &BrdgLowSw, &BrdgLowT, &BrdgLowActive,
                24, 25, 23, 17, &comboTimerH, &comboTimerL, 9,
-               "ComboChong", 9, false, jpScr, jpBns);
+               "ComboChong", 9, false, jpScr, jpBns, false);
 }
 /////////////////////////////////////////////////
 /////////////////////////////////////////////////
@@ -4702,13 +4747,16 @@ void BridgeLow() {
 /////////////////////////////////////////////////
 /////////////////////////////////////////////////
 void BridgeHigh() {
+  // A nagyhid mindig egy fokkal feljebb fizet a kishidnal. A 0. elem a
+  // multiball NELKULI, sima "Point2" hidtalalat - az a hozza tartozo 5000-es
+  // hanggal es videoval egyutt jar, ezert marad 5000.
   //                                    mb: 0     1      2      3      4      5
-  static const unsigned long jpScr[6] = { 5000, 10000, 15000, 20000, 20000, 20000 };
+  static const unsigned long jpScr[6] = { 5000, 15000, 20000, 25000, 30000, 50000 };
   static const unsigned long jpBns[6] = {  200,   500,   500,   500,   500,   500 };
   boolean collectedExtraBall = CollectExtraBallLitAtHighRamp();
   BridgeCommon(bridgeHighSwitch, &BrdgHighSw, &BrdgHighT, &BrdgHighActive,
                36, 37, 50, 51, &comboTimerL, &comboTimerH, 36,
-               "ComboCheech", 10, collectedExtraBall, jpScr, jpBns);
+               "ComboCheech", 10, collectedExtraBall, jpScr, jpBns, true);
 }
 /////////////////////////////////////////////////
 /////////////////////////////////////////////////
