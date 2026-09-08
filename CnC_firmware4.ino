@@ -2161,14 +2161,15 @@ unsigned long JackpotScorePoints(unsigned long basePoints) {
   return Scoring::JACKPOT_TIERS[7];
 }
 
-void PlayJackpotFeedback(unsigned long basePoints) {
+void PlayJackpotFeedback(unsigned long basePoints, uint8_t lightEffectId) {
   // A modszam nem azonositja a pontot: a ket hid jackpot-tablaja elter.
   // A GUI pontosan a ScoreJackpot() altal jovairt osszeghez valaszt videot.
   unsigned long points = JackpotScorePoints(basePoints);
   Serial.print("Jackpot_");
   Serial.println(points);
-  // ID19: 40 x 50 ms = 2 s; ket teljes kor a jackpot video/hang mellett.
-  StartFullBakedEffect(19, 2, LOW);
+  // A hid-jackpot az ID19 nagy full effektet, a loop-jackpot az ID1 sajat
+  // overlayet kapja. Igy mindket animacio valodi jatekesemenyhez tartozik.
+  PlayBakedEffectOnce(lightEffectId);
 
   uint16_t firstTrack = 0;
   switch (points) {
@@ -2233,6 +2234,9 @@ void StartUfoEjectBallSave(unsigned long minimumMs) {
   if (ufoEjectSaveStarted == LOW) {
     ufoEjectSaveStarted = HIGH;
     EnsureBallSave(minimumMs);
+    // Az altalanos ball-save nem kap kulon effektet: ez kifejezetten az UFO
+    // altal visszaadott golyo rovid vedelmet jelzi.
+    PlayBakedEffectOnce(25); // UFO Ball Back
   }
 }
 
@@ -3005,14 +3009,14 @@ void Loopshoot() {
       // fizeti. Ez KIVALTJA a sima loop-jackpotot ugyanazon a lovesen, hogy
       // ne fizessunk ketszer; a multiloopsw armozva marad egy kesobbi loopra.
       const unsigned long combo = Scoring::HIGH_LOOP_COMBO_SCR[multiball];
-      PlayJackpotFeedback(combo);
+      PlayJackpotFeedback(combo, 1); // Loop - Jackpot
       wTrig.trackPlayPoly(TRK_BLOB);
       ScoreJackpot(combo, Scoring::LOOP_JACKPOT_BONUS);
       highLoopArmT = 0;
     }
     else {
       if (multiloopsw == 1) {
-        PlayJackpotFeedback(Scoring::LOOP_JACKPOT_POINTS);
+        PlayJackpotFeedback(Scoring::LOOP_JACKPOT_POINTS, 1); // Loop - Jackpot
       }
       wTrig.trackPlayPoly(TRK_BLOB);
       if (multiloopsw == 1) {
@@ -3927,9 +3931,11 @@ void Weedspinner() {
           ballsaversw = HIGH;
           ballsavetime = 30000;
           ufosw = 0;
-          // Multiball szint-lepes: ide korabban ID2 (UFO Lottery) jott, de az
-          // mostmar kizarolag a UFO-VUK-weeddel esemenye. Egyelore nincs baked
-          // effekt -> tegyunk ide masikat, ha kell.
+          // Az elso, ketgolyos multiball sajat egyszer lefuto Michoakan
+          // fenyshow-ja. A magasabb szintek kulon effektet kaphatnak kesobb.
+          if (lvl == 0) {
+            PlayBakedEffectOnce(20);
+          }
           wTrig.trackPause(TRK_THEME);
           wTrig.trackPlayPoly(mbPoly1[lvl]);
           wTrig.trackLoop(mbLoop[lvl], 1);
@@ -4786,7 +4792,7 @@ void BridgeCommon(uint8_t swPin, boolean* swFlag, unsigned long* swT,
         Serial.println("Point2");
       }
       else {
-        PlayJackpotFeedback(jpScr[multiball]);
+        PlayJackpotFeedback(jpScr[multiball], 19); // Bridge Jackpot
       }
       delay(20);
       if (multiball == 0) {
