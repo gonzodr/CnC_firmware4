@@ -1548,6 +1548,7 @@ void Multiball() {
       wTrig.trackLoop(TRK_MUS_SPACECOKE, 0);
       wTrig.trackResume(TRK_THEME);
     }
+    PlayBakedEffectOnce(28); // Multiball End: informalo, nem unneplo
     multiball = 0;
     RestorePartyShotsForPlayer();
     SendPartyState();
@@ -2915,6 +2916,7 @@ void CnC() {
         wTrig.trackPlayPoly(TRK_CHEECHBEAUTY);
         wTrig.trackPlayPoly(TRK_SHOOTOUTUFO);
         Score(Scoring::GIFT_CNC_POINTS, Scoring::GIFT_CNC_BONUS);
+        PlayGiftCollectEffect();
         delay(10);
         Serial.println("Point2");
         giftsw = 3;
@@ -2946,6 +2948,7 @@ void CnC() {
     cnctimer = millis();
     cncoff = 1;
     Score(Scoring::CNC_COMPLETE_POINTS, Scoring::CNC_COMPLETE_BONUS);
+    PlayBakedEffectOnce(21); // C&C Complete: megnyilik Cheech es Chong lovese
   }
 
   if (cncoff == 1) {
@@ -3128,6 +3131,7 @@ void Weed() {
       if (SimDigitalRead(weedPin[i]) == LOW && *wsw[i] == 2) {
         *wsw[i] = 1;
         Score(Scoring::GIFT_OTHER_POINTS, Scoring::GIFT_OTHER_BONUS);
+        PlayGiftCollectEffect();
         wTrig.trackPlayPoly(weedSound[i]);
         wTrig.trackPlayPoly(TRK_CHEECHBEAUTY);
         wTrig.trackPlayPoly(TRK_SHOOTOUTUFO);
@@ -3244,6 +3248,7 @@ void Fishtank() {
       if (SimDigitalRead(fishPin[i]) == LOW && *fstate[i] == 2) {
         *fstate[i] = 1;
         Score(Scoring::GIFT_OTHER_POINTS, Scoring::GIFT_OTHER_BONUS);
+        PlayGiftCollectEffect();
         wTrig.trackPlayPoly(fishSound[i]);
         wTrig.trackPlayPoly(TRK_CHEECHBEAUTY);
         wTrig.trackPlayPoly(TRK_SHOOTOUTUFO);
@@ -3284,7 +3289,9 @@ void Fishtank() {
       if (beerCredits[player] < 3) {
         beerCredits[player]++;
         PlaySpeechRange(TRK_VO_CHONG_BEER_COLLECTED_A);
-        PlayBakedEffectOnce(18); // Fishtank overlay a sor betarazasara
+        // A harmadik sor a keszlet teteje - az kap sajat csucspontot (ID27),
+        // az elso ketto marad a rovid Fishtank overlayen.
+        PlayBakedEffectOnce(beerCredits[player] >= 3 ? 27 : 18);
         Serial.print("Beer");
         Serial.println(beerCredits[player]);
         SendPartyEvent("BEER");
@@ -3476,6 +3483,7 @@ void Dave_switch() {
     daveoff = 1;
     davetimer = millis();
     EnsureBallSave(DAVE_BALL_SAVE_MS);
+    PlayBakedEffectOnce(22); // DAVE Ball Save Lit: 10 mp vedelem, ezt mutassuk is
   }
 
   if (daveoff == 1) {
@@ -3533,6 +3541,7 @@ void Gate() {
         wTrig.trackPlayPoly(TRK_CHEECHYEAH);
         wTrig.trackPlayPoly(TRK_WEEDFULL);
         Serial.println("Drift");
+        PlayBakedEffectOnce(23); // Drift
         delay(20);
       }
       // ha barmelyik MASIK kapu meg van jelolve (==2), toroljuk mind a kettot
@@ -3600,6 +3609,7 @@ void Gate() {
     gateofftimer = millis();
     gateoffsw = 1;
     bonusx ++;
+    PlayBakedEffectOnce(26); // Bonus X Level Up
   }
 
   if (gateoffsw == 1 && millis() - 1000 < gateofftimer) {
@@ -4616,6 +4626,14 @@ void Collectives() {
 //// GIFT
 /////////////////////////////////////////////////
 /////////////////////////////////////////////////
+// A gift-begyujtes unneplese. Ket show keszult ra (Cheech es Chong), a
+// gift viszont kilenc celpont kozul sorsol karakter-megkulonboztetes
+// nelkul - a ketto tehat valtozat, nem hely. 50/50-ben valasztunk, ahogy
+// a jackpot-bemondas is teszi.
+void PlayGiftCollectEffect() {
+  PlayBakedEffectOnce(random(0, 2) ? 24 : 29);
+}
+
 void Gift() {
   if (giftsw == 0) {
     switch (randGift) {
