@@ -20,6 +20,10 @@ ebben a merfoldkoben.
 
 ## P0 - hianyzo visszajelzesek
 
+- [x] Dedikalt fenyeffekt a sima, aktivalt kis- es nagyhid talalatara:
+      ID31 a kis hidra, ID32 a nagy hidra. Az ID5 Weedblast tovabbra is
+      kizarolag a WEED kigyujtes esemenye.
+
 - [x] Tilt firmware: ket warning utan a harmadik kulon kontaktus Tilt.
 - [x] Tilt firmware: uj warning csak 750 ms stabilan nyitott kontaktus utan.
 - [x] Tilt firmware: warningok golyonkent nullazodnak.
@@ -45,9 +49,10 @@ ebben a merfoldkoben.
       kuld; az azonnali `Ufo5` extra ball tovabbra is megmaradt.
 - [x] Az `Ufo5` es `Ufo8` lottery-kimenet tiltott, ha mar van eltett vagy
       kigyujtesre varo extra ball.
-- [ ] Dedikalt `EXTRA BALL LIT` fenyjelzes a high rampon.
+- [x] Dedikalt `EXTRA BALL LIT` fenyjelzes a high rampon (ID36), majd
+      tartos pink-arany high-ramp jelzes a collectig.
 - [ ] `ExtraB` collect videoasset elkeszitese.
-- [ ] Extra ball collect light show es dedikalt callout.
+- [x] Extra ball collect light show (ID37) es dedikalt callout.
 - [ ] A WEED-stack bevezetesekor az azonnali extra ball es az extra-ball-lit
       lottery-sulyanak/retegenek meghatarozasa.
 - [x] Uj `Danger` video jelen van: 102 frame (2026-08-24).
@@ -62,7 +67,8 @@ ebben a merfoldkoben.
 - [ ] C&C complete: feny + hang + `SHOOT CHEECH OR CHONG` GUI-uzenet.
 - [ ] WEED complete: `SHOOT UFO OR SPINNER` GUI-uzenet.
 - [ ] DAVE complete: `BALL SAVE LIT` feny/hang/GUI-uzenet.
-- [ ] Combo alatt az ellenkezo híd nyilai villogjanak az 5,5 masodperces ablakban.
+- [x] Combo alatt az ellenkezo híd teljes celzonaja cyan-ibolya ritmusban
+      jelez az 5,5 masodperces ablakban.
 - [x] Dedikalt Chong combo-fenyeffekt (ID9) a kishid sikeres kombotalalatara.
 - [x] Dedikalt Cheech combo-fenyeffekt (ID10) a nagyhid sikeres kombotalalatara.
 - [ ] Light Editorban canvasra allitani es ujraexportalni az ID7 ChongCollect,
@@ -145,8 +151,9 @@ ebben a merfoldkoben.
 - [ ] Multiball-start feny.
 - [x] Dedikalt híd-jackpot feny: ID19 teljes palyas effekt, 2 kor;
       jackpotnal mar nem a Weedblast indul.
-- [ ] SpaceCoke start feny.
-- [ ] Cheech/Chong harmadik collectible completion feny.
+- [x] SpaceCoke start feny: ID14 sajat SpaceCoke MB show.
+- [x] Cheech/Chong harmadik collectible completion feny: Chong ID38,
+      Cheech ID39.
 - [ ] Effect ID1 overlay/full inditas ellenorzese es javitasa, ha szukseges.
 - [x] Hurry Up talalat nem inditja ujra minden mikro-switchnel a teljes palyas
       effektet.
@@ -208,5 +215,6 @@ ebben a merfoldkoben.
       eredmenyvideo; a regi `Ufo5`/`Ufo6` itt szandekosan nincs lejatszva
       (2026-08-27).
 - [ ] LovePack PNG sequence: `LOVE PACK! SHOOT THE UFO FOR COKE!`.
-- [ ] Dedikalt Roll a Joint / Love Pack / SpaceCoke baked fenyek.
+- [x] Dedikalt Roll a Joint / Love Pack / SpaceCoke baked fenyek: ID12,
+      ID13 es ID14, a megfelelo eventekre kotve.
 - [ ] Gepen teszt: minden cashout-sorrend, drain, multiplayer jatekosvaltas.

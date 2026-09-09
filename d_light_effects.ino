@@ -10,7 +10,7 @@
 //
 // ALAPVETOEN KETFELE lejatszas (a leiro overlay flagje donti el):
 //  - FULL (overlay=0): az effekt ATVESZI a palyat, a (0,0,0) = fekete.
-//    Inditas: effect = HIGH; effectID = ID;   (a jatek-LED-ek el vannak nyomva)
+//    Inditas: StartFullBakedEffect() vagy PlayBakedEffectOnce().
 //  - OVERLAY (overlay=1): az effekt csak RARAJZOL a normal jatek-fenyre, a
 //    (0,0,0) cella = ATLATSZO (a motor nem erinti). Igy egy kis effekt nem
 //    sotetiti el a palya tobbi reszet. Inditas: PlayOverlay(ID);
@@ -372,6 +372,17 @@ void RunLightEffect() {
   if (idx < 0) { // nincs ilyen ID (meg) -> biztonsagos lezaras
     effect = LOW; effectID = 0; runningEffect = 0;
     initlight = HIGH; Initlights();
+    return;
+  }
+  // Vedohalo a regi `effect/effectID` hivasokhoz: egy overlay effekt
+  // magenta atlatszosagi pixeleit soha ne rajzoljuk ki full effektkent.
+  // Az elso kockat a kovetkezo main-loopban a normal overlay ut rajzolja.
+  if (bakedEffects[idx].overlay) {
+    overlayIdx = idx;
+    overlayStartT = effectStartT;
+    effect = LOW;
+    effectID = 0;
+    runningEffect = 0;
     return;
   }
   RunBakedEffect(idx);

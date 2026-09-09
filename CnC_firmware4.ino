@@ -208,7 +208,13 @@ int simForceLottery = 0; // cinkelt UFO-lotto: 7=SpaceCoke, 8=pontlopas, 9=minig
 #define TRK_VO_UFO_WHEEL_HURRY_UP_A   284
 #define TRK_VO_UFO_WHEEL_MUNCHIES_A   287
 #define TRK_VO_UFO_SPACE_COKE_START_A 290
-#define TRK_VO_UFO_WHEEL_EXTRA_BALL_A 293
+#define TRK_VO_UFO_WHEEL_EXTRA_BALL_A 314
+
+// Multiball-inditasok: modonkent harom egymas utani A/B/C valtozat.
+#define TRK_VO_MULTIBALL_ACAPULCO_A   293
+#define TRK_VO_MULTIBALL_MICHOACAN_A  296
+#define TRK_VO_MULTIBALL_LABRADOR_A   302
+#define TRK_VO_MULTIBALL_THAISTICK_A  311
 
 #define TRK_VO_JACKPOT_10000_A       209
 #define TRK_VO_JACKPOT_15000_A       211
@@ -682,6 +688,7 @@ int ufoCoil = 37; // output ufo
 // Booleans
 boolean ufoInactivesw = 0;
 boolean ufoEjectSaveStarted = LOW;
+boolean ufoRejectSirenStarted = LOW;
 // Integers
 int ufoanalog = 0;
 int ufoMinus = 0; // pontlopasnal (lottery 8): a kirabolt jatekos sorszama
@@ -1116,7 +1123,6 @@ void Ballhandler() {
         shoottimer = millis();
         shoottimer2 = millis();
         shoot = 1;
-        PlaySpeechRange(TRK_VO_CHEECH_BALL_LAUNCH_A);
       }
     }
 
@@ -1279,6 +1285,9 @@ void Ballhandler() {
             bonus = bonus * 8;
           }
           score[player] = score[player] + bonus;
+          if (bonus > 0) {
+            PlayBakedEffectOnce(35); // Ball End Bonus Count
+          }
         }
         bonusx = 0;
         bonus = 0;
@@ -2608,7 +2617,7 @@ boolean CollectExtraBallLitAtHighRamp() {
   extraBallLit = LOW;
   extraball = 1;
   PlaySpeechRange(TRK_VO_CHONG_EXTRA_BALL_A);
-  PlayBakedEffectOnce(16);
+  PlayBakedEffectOnce(37); // High Ramp Extra Ball Collect
   Serial.println("ExtraB");
   delay(20);
   return true;
@@ -3034,8 +3043,7 @@ void Loopshoot() {
       }
       else {
         Score(Scoring::LOOP_POINTS, Scoring::LOOP_BONUS);
-        // sima felso loop: nincs baked effekt (az ID4/UFO FUCK mostmar
-        // kizarolag a UFO-no-weed esemenye)
+        PlayBakedEffectOnce(33); // Normal Loop Score
       }
       multiloopsw = 0;
     }
@@ -3171,8 +3179,7 @@ void Weed() {
     // ismetlese idegesito - a bemondas ott ertelmetlen is, mert jointot
     // multiball alatt ugysem lehet sodorni (lasd RollJointLit).
     if (multiball == 0) {
-      effect = HIGH;
-      effectID = 5; // Weedblast - a weed kigyulesekor (korabban ID3 volt)
+      PlayBakedEffectOnce(5); // Weedblast: overlaykent kell lejatszani
       boolean canChoosePartyShot =
         (beerCredits[player] > 0 && jointStack[player] < 3);
       PlaySpeechRange(canChoosePartyShot
@@ -3923,9 +3930,13 @@ void Weedspinner() {
         static const int8_t         mbDecr[4]  = { 25, 15, 10, 8 };
         static const unsigned long  mbScr[4]   = { 10000, 20000, 30000, 40000 };
         static const unsigned long  mbBns[4]   = {   500,  1000,  1500,  2000 };
-        static const uint8_t        mbPoly1[4] = { 69, 71, 64, 65 }; // elso hang
         static const uint8_t        mbLoop[4]  = { 89, 88, 64, 65 }; // loopolt zene
-        static const uint8_t        mbPoly2[4] = { 89, 88, 68, 70 }; // masodik hang
+        static const uint16_t       mbVoice[4] = {
+          TRK_VO_MULTIBALL_MICHOACAN_A,
+          TRK_VO_MULTIBALL_ACAPULCO_A,
+          TRK_VO_MULTIBALL_THAISTICK_A,
+          TRK_VO_MULTIBALL_LABRADOR_A
+        };
 
         weedmeter[player] = weedmeter[player] - mbDecr[lvl];
         if (weedmeter[player] <= 0) {
@@ -3941,15 +3952,13 @@ void Weedspinner() {
           ballsaversw = HIGH;
           ballsavetime = 30000;
           ufosw = 0;
-          // Az elso, ketgolyos multiball sajat egyszer lefuto Michoakan
-          // fenyshow-ja. A magasabb szintek kulon effektet kaphatnak kesobb.
-          if (lvl == 0) {
-            PlayBakedEffectOnce(20);
-          }
+          // Harom paletta fedi le a negy multiballt. A Michoakan es Thai
+          // ugyanazt a zold show-t hasznalja; Acapulco arany, Labrador kek.
+          static const uint8_t mbLightEffect[4] = { 20, 40, 20, 41 };
+          PlayBakedEffectOnce(mbLightEffect[lvl]);
           wTrig.trackPause(TRK_THEME);
-          wTrig.trackPlayPoly(mbPoly1[lvl]);
           wTrig.trackLoop(mbLoop[lvl], 1);
-          wTrig.trackPlayPoly(mbPoly2[lvl]);
+          PlaySpeechRange(mbVoice[lvl]);
           spinnersw = 2;
           multiloopsw = 1;
           BrdgLowActive = HIGH;
@@ -4088,10 +4097,9 @@ void AwardUfoLottery() {
     wTrig.trackPlayPoly(TRK_FIREWORK);
     PlaySpeechRange(TRK_VO_UFO_CASHOUT_30000_A);
   }
-  // A negy sima pont-kifizetesnek nincs sajat mondanivaloja, de a
-  // tobbi jutalom mellett furcsa a sotetseg -> kozos strobe.
+  // A negy sima pont-kifizetes kozos, de sajat cashout-pukkot kap.
   if (lottery >= 3 && lottery <= 6) {
-    PlayBakedEffectOnce(17);
+    PlayBakedEffectOnce(34);
   }
   if (lottery  == 7) {    /// SpaceCoke Multi
     BIP = 5;
@@ -4120,7 +4128,7 @@ void AwardUfoLottery() {
   if (lottery == 10) {    /// Extra Ball Lit (Ufo8)
     wTrig.trackPlayPoly(TRK_FIREWORK);
     PlaySpeechRange(TRK_VO_UFO_EXTRA_BALL_LIT_A);
-    PlayBakedEffectOnce(17); // a KIGYUJTAS; a beszedes az ID16-ot kapja
+    PlayBakedEffectOnce(36); // High Ramp Extra Ball Lit
   }
 }
 
@@ -4177,6 +4185,7 @@ void UFOO() {
   if (stableBallPresent && ufoshoot == 0) {
     ufoDetectStartedAt = 0;
     ufoEjectSaveStarted = LOW;
+    ufoRejectSirenStarted = LOW;
     if (ufosw == 1 && multiball == 0) {
       // Az UFO jutalmat mar a golyo beerkezesekor reteszeljuk. A tier
       // kovetkezetesen elfogy: sima WEED cashout, 1 joint Super Cashout,
@@ -4240,6 +4249,16 @@ void UFOO() {
 
     ufoshoottimer = millis();
     ufoshoottimer2 = millis();
+  }
+
+  // A ket rovid "nincs weed" valasz elobb kap egy 1,5 masodperces
+  // piros elutasito szirenat (ID30), majd csak utana indul a meglvo
+  // cyan UFO Ball Back (ID25). A 2 mp-es valtozatnal fel masodperccel
+  // kesobb kezdjuk, hogy kozvetlenul a kidobasig tartson.
+  if ((ufoshoot == 2 || ufoshoot == 3) && ufoRejectSirenStarted == LOW &&
+      millis() - ufoshoottimer >= (ufoshoot == 2 ? 500UL : 0UL)) {
+    PlayBakedEffectOnce(30);
+    ufoRejectSirenStarted = HIGH;
   }
 
   if (ufoshoot == 1 && ufoshoottimer2 < millis() - 4300) {
@@ -4434,6 +4453,7 @@ void Chong_switch() {
           Score(Scoring::COLLECTIBLE_POINTS[2], Scoring::COLLECTIBLE_BONUS[2]);
           wTrig.trackPlayPoly(TRK_COLLECT);
           wTrig.trackPlayPoly(TRK_PIPEWRENCH);
+          PlayBakedEffectOnce(38); // Chong triple collectible celebration
           chongCollectives[player] = 0;
       }
     }
@@ -4511,6 +4531,7 @@ void Cheech_switch() {
           Score(Scoring::COLLECTIBLE_POINTS[2], Scoring::COLLECTIBLE_BONUS[2]);
           wTrig.trackPlayPoly(TRK_COLLECT);
           wTrig.trackPlayPoly(TRK_LICENSEPLATE);
+          PlayBakedEffectOnce(39); // Cheech triple collectible celebration
           cheechCollectives[player] = 0;
 
       }
@@ -4690,7 +4711,8 @@ void BridgeCommon(uint8_t swPin, boolean* swFlag, unsigned long* swT,
                   uint8_t ledAmbA, uint8_t ledAmbB,
                   unsigned long* comboReadT, unsigned long* comboWriteT,
                   uint8_t firstHitSound, const char* comboVideoPrefix,
-                  uint8_t comboEffectId, boolean suppressFeedback,
+                  uint8_t comboEffectId, uint8_t normalHitEffectId,
+                  boolean suppressFeedback,
                   const unsigned long* jpScr, const unsigned long* jpBns,
                   boolean armsLoopCombo,
                   unsigned long hurryScr, const char* hurryVideo) {
@@ -4710,8 +4732,13 @@ void BridgeCommon(uint8_t swPin, boolean* swFlag, unsigned long* swT,
         (hurryUp == LOW && *comboReadT != 0 &&
          millis() - *comboReadT < BRIDGE_COMBO_WINDOW_MS);
     if (comboNext) {
-      leds[ledActA] = (ledState == HIGH) ? CRGB::Aqua : CRGB::Black;
-      leds[ledActB] = (ledState == HIGH) ? CRGB::Black : CRGB::Aqua;
+      // A masik hid a kovetkezo combo-cel: ne csak ket LED villanjon,
+      // hanem a teljes bridge-zona, kulon cyan/ibolya iranyszinnel.
+      const boolean beat = ((millis() / 145UL) & 1U) == 0;
+      leds[ledActA] = beat ? CRGB::Aqua : CRGB(60, 0, 160);
+      leds[ledActB] = beat ? CRGB(60, 0, 160) : CRGB::Aqua;
+      leds[ledAmbA] = beat ? CRGB(12, 95, 110) : CRGB::Black;
+      leds[ledAmbB] = beat ? CRGB::Black : CRGB(12, 95, 110);
     }
     else {
       leds[ledActA] = CRGB::Black;
@@ -4808,16 +4835,12 @@ void BridgeCommon(uint8_t swPin, boolean* swFlag, unsigned long* swT,
       else if (multiball == 0) {
         wTrig.trackPlayPoly(TRK_SCORE_5000);
         Serial.println("Point2");
+        PlayBakedEffectOnce(normalHitEffectId);
       }
       else {
         PlayJackpotFeedback(jpScr[multiball], 19); // Bridge Jackpot
       }
       delay(20);
-      if (multiball == 0) {
-        // A sima aktiv hid regi fenye marad; jackpotnal az ID19 fut.
-        effect = HIGH;
-        effectID = 5;
-      }
     }
 
     if (*swFlag == 1 && millis() > *swT + 1000) {
@@ -4862,7 +4885,7 @@ void BridgeLow() {
   static const unsigned long jpBns[6] = {  200,   200,   200,   200,   200,   200 };
   BridgeCommon(bridgeLowSwitch, &BrdgLowSw, &BrdgLowT, &BrdgLowActive,
                24, 25, 23, 17, &comboTimerH, &comboTimerL, 9,
-               "ComboChong", 9, false, jpScr, jpBns, false,
+               "ComboChong", 9, 31, false, jpScr, jpBns, false,
                Scoring::HURRY_BRIDGE_LOW_POINTS, "Point5");   // 15000
 }
 /////////////////////////////////////////////////
@@ -4886,8 +4909,15 @@ void BridgeHigh() {
   boolean collectedExtraBall = CollectExtraBallLitAtHighRamp();
   BridgeCommon(bridgeHighSwitch, &BrdgHighSw, &BrdgHighT, &BrdgHighActive,
                36, 37, 50, 51, &comboTimerL, &comboTimerH, 36,
-               "ComboCheech", 10, collectedExtraBall, jpScr, jpBns, true,
+               "ComboCheech", 10, 32, collectedExtraBall, jpScr, jpBns, true,
                Scoring::HURRY_BRIDGE_HIGH_POINTS, "Point7");  // 25000
+  // A lottery altal kigyujtott Extra Ball sajat, tartos high-ramp jelzest
+  // kap a collectig; a 36-os baked effekt csak a kigyujtas pillanata.
+  if (extraBallLit == HIGH && effect == LOW) {
+    const boolean beat = ((millis() / 240UL) & 1U) == 0;
+    leds[36] = beat ? CRGB(255, 35, 150) : CRGB(255, 180, 35);
+    leds[37] = beat ? CRGB(255, 180, 35) : CRGB(255, 35, 150);
+  }
 }
 /////////////////////////////////////////////////
 /////////////////////////////////////////////////
