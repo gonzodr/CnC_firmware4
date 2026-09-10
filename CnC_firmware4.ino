@@ -134,8 +134,11 @@ int simForceLottery = 0; // cinkelt UFO-lotto: 7=SpaceCoke, 8=pontlopas, 9=minig
 #define TRK_PING               10
 #define TRK_LARDASS            11
 #define TRK_WEED               15
+#define TRK_UFO                18
 #define TRK_CHEECHYEAH         17
 #define TRK_BANANA             19
+#define TRK_PUNCH              20
+#define TRK_LOOP               21
 #define TRK_DAVE               23
 #define TRK_GATESUCCESS        27
 #define TRK_KVAKK              28
@@ -143,6 +146,7 @@ int simForceLottery = 0; // cinkelt UFO-lotto: 7=SpaceCoke, 8=pontlopas, 9=minig
 #define TRK_CHEECHBEAUTY       36
 #define TRK_CHEECHFART         37
 #define TRK_SHOOTOUTUFO        42
+#define TRK_UFOALARM           44
 #define TRK_HAPPYUFO           45
 #define TRK_MISSU              46
 #define TRK_LETSPLAY           47
@@ -151,6 +155,7 @@ int simForceLottery = 0; // cinkelt UFO-lotto: 7=SpaceCoke, 8=pontlopas, 9=minig
 #define TRK_MUS_SWING_LOOP4    65
 #define TRK_WEEDFULL           72
 #define TRK_JACKPOT            73
+#define TRK_DANGER             86
 #define TRK_MUS_ROCKFIGHT      88
 #define TRK_MUS_STRAWBERRY2    89
 #define TRK_BOOT               90
@@ -179,6 +184,7 @@ int simForceLottery = 0; // cinkelt UFO-lotto: 7=SpaceCoke, 8=pontlopas, 9=minig
 #define TRK_PIPEWRENCH         122
 #define TRK_COLLECT            123
 #define TRK_UFO_WHEEL_BG       128
+#define TRK_MULTIBALL_EXPLOSION 129
 
 // --- Uj Cheech/Chong es UFO/Alien voice-over csomag (OrigySD 2026) ---
 // Az UFO/egyeb esemenyek harom, a jackpotok ket egymas utani hangbol allnak.
@@ -393,6 +399,8 @@ boolean popsw3 = LOW;
 unsigned long poptimer1 = 0;
 unsigned long poptimer2 = 0;
 unsigned long poptimer3 = 0;
+unsigned long popSoundTimer = 0;
+const unsigned long POP_SOUND_COOLDOWN_MS = 300UL;
 /////////////////////////////////////////////////////////////////
 
 
@@ -1123,6 +1131,14 @@ void Ballhandler() {
         shoottimer = millis();
         shoottimer2 = millis();
         shoot = 1;
+        // Az elso golyo a klasszikus "yeah man" hangot kapja; a masodik es
+        // harmadik normal golyo a kulon ball-launch A/B/C csomagbol valaszt.
+        if (ball == 1) {
+          wTrig.trackPlayPoly(TRK_CHEECHYEAH);
+        }
+        else {
+          PlaySpeechRange(TRK_VO_CHEECH_BALL_LAUNCH_A);
+        }
       }
     }
 
@@ -3016,6 +3032,9 @@ void Loopshoot() {
     wTrig.trackPlayPoly(TRK_BANANA);
   }
   if (SimDigitalRead(loopSwitchSide) == LOW && millis() - 1000 < looptimer && loopsw == LOW) {
+    if (multiball != 0) {
+      wTrig.trackPlayPoly(TRK_LOOP);
+    }
     if (HighLoopComboArmed()) {
       // A nagyhid utani loop a sajat, multiball-szinthez kotott osszeget
       // fizeti. Ez KIVALTJA a sima loop-jackpotot ugyanazon a lovesen, hogy
@@ -3705,6 +3724,13 @@ void Pops() {
   for (uint8_t i = 0; i < 3; i++) {
     if (SimDigitalRead(popSwitch[i]) == LOW && *popLogic[i] == LOW) {
       Score(Scoring::POP_POINTS, Scoring::POP_BONUS);
+      const unsigned long now = millis();
+      // Kozos cooldown a harom bumperre: egy megvadult kapcsolo sem tudja
+      // telepumpalni a WAV Trigger osszes polifon csatornajat.
+      if (popSoundTimer == 0 || now - popSoundTimer >= POP_SOUND_COOLDOWN_MS) {
+        wTrig.trackPlayPoly(TRK_PUNCH);
+        popSoundTimer = now;
+      }
       *popSw[i] = HIGH;
       *popLogic[i] = HIGH;
       *popTimer[i] = millis();
@@ -3958,6 +3984,7 @@ void Weedspinner() {
           PlayBakedEffectOnce(mbLightEffect[lvl]);
           wTrig.trackPause(TRK_THEME);
           wTrig.trackLoop(mbLoop[lvl], 1);
+          wTrig.trackPlayPoly(TRK_MULTIBALL_EXPLOSION);
           PlaySpeechRange(mbVoice[lvl]);
           spinnersw = 2;
           multiloopsw = 1;
@@ -4226,6 +4253,7 @@ void UFOO() {
         // golyot. (A teljes effekt ujraindítasa az introt is ismetelte.)
         StartHoldingBakedEffect(4);
         wTrig.trackPause(TRK_THEME);
+        wTrig.trackPlayPoly(TRK_UFO);
         PlaySpeechRange(TRK_VO_UFO_NO_WEED_LONG_A);
         Serial.println("Ufo6");
         delay(20);
@@ -4236,6 +4264,7 @@ void UFOO() {
       }
       if (ufoshoot == 3) {
         wTrig.trackPause(TRK_THEME);
+        wTrig.trackPlayPoly(TRK_UFOALARM);
         PlaySpeechRange(TRK_VO_UFO_NO_WEED_ALARM_A);
       }
     }
@@ -5098,6 +5127,7 @@ void Tilt() {
       tiltWarnings++;
 
       if (tiltWarnings <= TILT_WARNINGS_ALLOWED) {
+        wTrig.trackPlayPoly(TRK_DANGER);
         wTrig.trackPlayPoly(TRK_MELLOWOUT);
         wTrig.trackPlayPoly(TRK_TILT1);
         StartFullBakedEffect(11, 3, LOW); // Danger: harom teljes Tilt-fenykor
