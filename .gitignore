@@ -5,5 +5,9 @@ Release/
 __vm/
 *.vcxproj.user
 
+# Python forrasszintu regressziotesztek gyorsitotara
+__pycache__/
+*.py[cod]
+
 # Az effect_data.h generalt (a Light Editor irja) - a .bak csak helyi mentes
 effect_data.h.bak

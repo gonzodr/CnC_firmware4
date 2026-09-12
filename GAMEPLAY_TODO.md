@@ -28,8 +28,8 @@ ebben a merfoldkoben.
 - [x] Tilt firmware: uj warning csak 750 ms stabilan nyitott kontaktus utan.
 - [x] Tilt firmware: warningok golyonkent nullazodnak.
 - [x] Tilt firmware: Tilt eseten nincs golyovegi bonusz.
-- [ ] Multiball1 video: `Michokan`.
-- [ ] Multiball2 video: `Acapulco Gold`.
+- [ ] Multiball1 video: `Acapulco Gold` (2 golyo).
+- [ ] Multiball2 video: `Michokan` (3 golyo).
 - [ ] Multiball3 video: `Thai Stick`.
 - [ ] Multiball4 video: `Labrador`.
 - [x] Pontos osszegu jackpot-videok: 10000/15000/20000/25000/30000/50000/100000.
@@ -80,7 +80,8 @@ ebben a merfoldkoben.
 
 ## P0 - Cheech/Chong hangcsomag (OrigySD 2026)
 
-- [x] Cheech BALL_LAUNCH: 206-208, veletlen A/B/C az elso golyoinditaskor.
+- [x] Cheech BALL_LAUNCH: 206-208, veletlen A/B/C a 2./3. normal golyonal;
+      az elso golyonal megmarad a klasszikus 017-es "yeah man".
 - [x] Cheech BALL_SAVE: 215-217, csak tenyleges egygolyos mentesnel;
       elso kilovesnel es multiball-potlasnal nem szol.
 - [x] Chong EXTRA_BALL_AWARDED: 218-220 a high-ramp collectnel; a kovetkezo
@@ -95,15 +96,12 @@ ebben a merfoldkoben.
 - [ ] Jackpot audio/video gepi ellenorzes: a WAV-ok 3,16-6,13 masodpercesek,
       a video 4,17 s. A hosszabb hangok a pontkepernyore visszaterve is futhatnak;
       a bekotes nem vagja vagy gyorsitja oket.
-- [ ] Cheech MULTIBALL_ACAPULCO: a tablazat szerinti 293-295 mar az Alien
-      Wheel Extra Ball harom hangja; uj, szabad tracktartomany es 3 WAV kell.
-- [ ] Chong MULTIBALL_MICHOACAN: 296-298 WAV hianyzik; a B/C szoveg is
-      hianyzik a katalogusbol.
-- [ ] Chong MULTIBALL_LABRADOR: 302-304 WAV hianyzik; a C szoveg is
-      hianyzik a katalogusbol.
-- [ ] Cheech COMBO: 311-313 WAV hianyzik.
-- [ ] MULTIBALL3 / Thai Stick: nincs Cheech/Chong esemenysor a katalogusban;
-      karakter, harom szoveg es szabad trackazonositok kellenek.
+- [x] Cheech MULTIBALL_ACAPULCO: 293-295, az elso/ketgolyos multiball.
+- [x] Chong MULTIBALL_MICHOACAN: 296-298, a masodik/haromgolyos multiball.
+- [x] Chong MULTIBALL_LABRADOR: 302-304, a negyedik/otgolyos multiball.
+- [x] Combo-beszed: az SD-n nem letezo 095/096 helyett a befejezo hid
+      meglevo 009/036 reakcioja szol.
+- [x] MULTIBALL3 / Thai Stick: 311-313, a harmadik/negygolyos multiball.
 
 ## P0 - pontozas rendbetetele
 

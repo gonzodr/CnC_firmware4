@@ -71,15 +71,16 @@ class JackpotAudioContractTests(unittest.TestCase):
         self.assertIn("JackpotScorePoints(scr)", function_body("ScoreJackpot"))
         points = function_body("JackpotScorePoints")
         self.assertIn("DirectScorePoints(basePoints)", points)
-        self.assertIn("if (points == 40000UL) return 50000UL;", points)
-        self.assertIn("if (points == 60000UL) return 100000UL;", points)
+        self.assertIn("Scoring::JACKPOT_TIERS[i] >= points", points)
+        self.assertIn("return Scoring::JACKPOT_TIERS[7];", points)
 
     def test_loop_and_both_bridges_use_shared_feedback_without_old_voice_overlay(self):
         self.assertIn(
-            "PlayJackpotFeedback(Scoring::LOOP_JACKPOT_POINTS);", function_body("Loopshoot")
+            "PlayJackpotFeedback(Scoring::LOOP_JACKPOT_POINTS, 1);",
+            function_body("Loopshoot"),
         )
         # BridgeCommon has a multiline signature, so inspect the call in the sketch.
-        self.assertEqual(SKETCH.count("PlayJackpotFeedback(jpScr[multiball]);"), 1)
+        self.assertEqual(SKETCH.count("PlayJackpotFeedback(jpScr[multiball], 19);"), 1)
         # Only the unknown-amount fallback may still play the old generic voice.
         self.assertEqual(SKETCH.count("wTrig.trackPlayPoly(TRK_JACKPOT);"), 1)
         self.assertNotIn("SendJackpotVideo(", SKETCH)

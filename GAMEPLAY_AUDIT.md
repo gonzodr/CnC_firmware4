@@ -88,8 +88,8 @@ Vizsgalt allapot:
 A GUI-katalogus mar ismeri a triggereket, de a helyi `src/assets/Videos`
 konyvtarban ezekhez nincs sequence:
 
-- `Michokan`
 - `Acapulco Gold`
+- `Michokan`
 - `Thai Stick`
 - `Labrador`
 - `Jackpot2`

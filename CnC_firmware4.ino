@@ -161,8 +161,6 @@ int simForceLottery = 0; // cinkelt UFO-lotto: 7=SpaceCoke, 8=pontlopas, 9=minig
 #define TRK_BOOT               90
 #define TRK_FIREWORK           91
 #define TRK_SCORE_5000         92
-#define TRK_COMBO1             95
-#define TRK_COMBO2             96
 #define TRK_HISCORE_SKIP       102
 #define TRK_ADDPLAYER          103
 #define TRK_ADDSCORE           104
@@ -1324,7 +1322,10 @@ void Ballhandler() {
               intmon = 2;
             }
             else {
-              shoot = 1;
+              // Ugyanazon a normal inditasi agon menjen at az uj kor elso
+              // jatekosa is. A kozvetlen shoot=1 atlepte a BALL_LAUNCH
+              // bemondast (egyjatekos modban emiatt a 2./3. golyo is nema volt).
+              shoot = 0;
             }
           }
         }
@@ -3958,8 +3959,8 @@ void Weedspinner() {
         static const unsigned long  mbBns[4]   = {   500,  1000,  1500,  2000 };
         static const uint8_t        mbLoop[4]  = { 89, 88, 64, 65 }; // loopolt zene
         static const uint16_t       mbVoice[4] = {
-          TRK_VO_MULTIBALL_MICHOACAN_A,
           TRK_VO_MULTIBALL_ACAPULCO_A,
+          TRK_VO_MULTIBALL_MICHOACAN_A,
           TRK_VO_MULTIBALL_THAISTICK_A,
           TRK_VO_MULTIBALL_LABRADOR_A
         };
@@ -3978,12 +3979,15 @@ void Weedspinner() {
           ballsaversw = HIGH;
           ballsavetime = 30000;
           ufosw = 0;
-          // Harom paletta fedi le a negy multiballt. A Michoakan es Thai
-          // ugyanazt a zold show-t hasznalja; Acapulco arany, Labrador kek.
-          static const uint8_t mbLightEffect[4] = { 20, 40, 20, 41 };
+          // Szintsorrend: Acapulco (2 golyo), Michoakan (3), Thai Stick (4),
+          // Labrador (5). Michoakan es Thai ugyanazt a zold show-t hasznalja.
+          static const uint8_t mbLightEffect[4] = { 40, 20, 20, 41 };
           PlayBakedEffectOnce(mbLightEffect[lvl]);
           wTrig.trackPause(TRK_THEME);
           wTrig.trackLoop(mbLoop[lvl], 1);
+          // A LOOP_ON csak a track tulajdonsagat allitja; a PLAY_POLY inditja
+          // el tenylegesen a multiball zenet.
+          wTrig.trackPlayPoly(mbLoop[lvl]);
           wTrig.trackPlayPoly(TRK_MULTIBALL_EXPLOSION);
           PlaySpeechRange(mbVoice[lvl]);
           spinnersw = 2;
@@ -4799,17 +4803,16 @@ void BridgeCommon(uint8_t swPin, boolean* swFlag, unsigned long* swT,
           if (comboCounter > 6) {
             comboCounter = 6;
           }
-          static const uint8_t comboSound[6] = {
-            TRK_COMBO1, TRK_COMBO2, TRK_COMBO1,
-            TRK_COMBO1, TRK_COMBO2, TRK_COMBO1
-          };
           uint8_t comboIndex = comboCounter - 1;
           Score(Scoring::COMBO_POINTS[comboIndex],
                 Scoring::COMBO_BONUS[comboIndex]);
           if (!suppressFeedback) {
             Serial.print(comboVideoPrefix);
             Serial.println(comboCounter);
-            wTrig.trackPlayPoly(comboSound[comboIndex]);
+            // A regi 95/96 combo trackek nincsenek az SD-n. A befejezo hid
+            // valodi, mar hasznalt beszedhangja szol: low=009 wowman,
+            // high=036 Cheech beautiful.
+            wTrig.trackPlayPoly(firstHitSound);
             PlayBakedEffectOnce(comboEffectId);
           }
         }
