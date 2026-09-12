@@ -16,8 +16,12 @@
 #include <Arduino.h>
 #include <avr/pgmspace.h>
 
-// Keep Arduino core pin tables below 64 KiB; this bank is read with far access.
-#define FX_DATA_PROGMEM __attribute__((section(".text.fxdata"), used))
+// Keep Arduino core pin tables and all executable code below 64 KiB.  The AVR
+// linker appends .fini1 after every .text.* input, so the large, far-read-only
+// effect bank cannot split normal code from avr-libc/core helper functions.
+// Arduino's main loop never returns, therefore the .fini shutdown path is not
+// executed; .fini0 still owns the terminal loop if it ever does.
+#define FX_DATA_PROGMEM __attribute__((section(".fini1"), used))
 
 #define FX_DATA_MASK_APPLIED 0x5A
 
