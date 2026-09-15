@@ -11,6 +11,12 @@ SKETCH = (Path(__file__).resolve().parents[1] / "CnC_firmware4.ino").read_text(
 
 
 class GameplayAudioContractTests(unittest.TestCase):
+    def test_chong_hit_random_pool_includes_track_92(self):
+        self.assertRegex(
+            SKETCH,
+            r"chongTracks\[11\]\s*=\s*\{[^}]*\b92\s*\};\s*PlaySpeech\(chongTracks, 11\)",
+        )
+
     def test_multiball_identity_order_matches_ball_count(self):
         voice_table = re.search(
             r"mbVoice\[4\]\s*=\s*\{(.*?)\};", SKETCH, re.DOTALL

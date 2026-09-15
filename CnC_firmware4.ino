@@ -4465,9 +4465,9 @@ void Chong_switch() {
     chongoffsw = HIGH;
     chongoffswtimer = millis();
     TriggerHurryHit(HURRY_ZONE_CHONG);
-    // Chong beszedhangok (a regi 10 case-es switch helyett)
-    static const uint8_t chongTracks[10] = { 8, 9, 52, 53, 9, 79, 80, 82, 83, 85 };
-    PlaySpeech(chongTracks, 10);
+    // Chong beszedhangok, a 0092-es uj dumaval.
+    static const uint8_t chongTracks[11] = { 8, 9, 52, 53, 9, 79, 80, 82, 83, 85, 92 };
+    PlaySpeech(chongTracks, 11);
     
     /// 
     /// Active state
