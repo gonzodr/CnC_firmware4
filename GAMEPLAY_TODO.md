@@ -7,6 +7,13 @@ ebben a merfoldkoben.
 
 ## P0 - audit es forrasigazsag
 
+- [x] Highscore Exit/Exit1/Exit2 kozos soros parseren: a GUI ujsoros
+      parancsa highscore modban is A13-as resetet indit (2026-09-15).
+- [x] Szervo UNO I2C kuldes: AVR Wire 25 ms timeout, 250 ms koz a
+      probalkozasok kozott, maximum 3 probalkozas es FAULT sor (2026-09-15).
+- [ ] Gepen teszt: highscore nevmentes utan Exit1, reset es uj jatek;
+      illetve szervo UNO kihuzva nem akad meg a firmware.
+
 - [ ] A balance pass utan a teljes SIM-demot ujra futtatni es az uj,
       szandekosan megvaltozott pontozasi golden baseline-t rogzitani.
 

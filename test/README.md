@@ -90,6 +90,12 @@ Forrasszintu ellenorzes: `python -m unittest discover -s test -p test_jackpot_li
 
 ## Fájlok
 
+Highscore/I2C regresszio: `python -m unittest discover -s test -p test_highscore_serial_i2c.py`.
+A GUI `Exit1\n` parancsat most a kozos parser kezeli highscore modban is.
+A Wire timeout 25 ms, a servo-meter legfeljebb haromszor probalkozik,
+250 ms idokozzel. A fizikai A13 resetet es a szervo UNO hibaesetet csak a
+gepen lehet veglegesen igazolni.
+
 - `golden_demo.events.txt` - a referencia eseménysor (2 játékos, teljes
   parti multiballal + SpaceCoke-kal + névbeírással)
 - `watch.py` - soros-figyelő, kanonikus eseménysort ír

@@ -36,12 +36,20 @@ class GameplayAudioContractTests(unittest.TestCase):
             r"trackLoop\(mbLoop\[lvl\], 1\);[\s\S]*?trackPlayPoly\(mbLoop\[lvl\]\);",
         )
 
-    def test_combo_uses_tracks_that_exist_on_the_machine_sd(self):
+    def test_combo_uses_finishing_bridge_character_voice(self):
         self.assertNotIn("TRK_COMBO1", SKETCH)
         self.assertNotIn("TRK_COMBO2", SKETCH)
-        self.assertIn("wTrig.trackPlayPoly(firstHitSound);", SKETCH)
-        self.assertRegex(SKETCH, r"&comboTimerH, &comboTimerL, 9,")
-        self.assertRegex(SKETCH, r"&comboTimerL, &comboTimerH, 36,")
+        self.assertRegex(SKETCH, r"#define TRK_VO_CHEECH_COMBO_A\s+317")
+        self.assertRegex(SKETCH, r"#define TRK_VO_CHONG_COMBO_A\s+320")
+        self.assertIn("PlaySpeechRange(comboVoiceTrack);", SKETCH)
+        self.assertRegex(
+            SKETCH,
+            r"&comboTimerH, &comboTimerL, 9,\s*TRK_VO_CHONG_COMBO_A",
+        )
+        self.assertRegex(
+            SKETCH,
+            r"&comboTimerL, &comboTimerH, 36,\s*TRK_VO_CHEECH_COMBO_A",
+        )
 
     def test_new_round_returns_to_the_speaking_launch_path(self):
         wrap = re.search(

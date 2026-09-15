@@ -213,6 +213,8 @@ int simForceLottery = 0; // cinkelt UFO-lotto: 7=SpaceCoke, 8=pontlopas, 9=minig
 #define TRK_VO_UFO_WHEEL_MUNCHIES_A   287
 #define TRK_VO_UFO_SPACE_COKE_START_A 290
 #define TRK_VO_UFO_WHEEL_EXTRA_BALL_A 314
+#define TRK_VO_CHEECH_COMBO_A         317
+#define TRK_VO_CHONG_COMBO_A          320
 
 // Multiball-inditasok: modonkent harom egymas utani A/B/C valtozat.
 #define TRK_VO_MULTIBALL_ACAPULCO_A   293
@@ -341,7 +343,6 @@ extern const TProgmemPalette16 myRedWhiteBluePalette_p PROGMEM;
 
 wavTrigger wTrig;
 
-String incomeMsg = "";
 
 
 
@@ -919,6 +920,8 @@ void setup() {
   currentBlending = NOBLEND;
 
   Wire.begin();
+  // Az AVR Wire I2C-hibanal kulonben vegtelenul varhatna a szervo UNO-ra.
+  Wire.setWireTimeout(25000UL, true);
   Serial.begin(115200); // a Python GUI-hoz igazitva (a regi 9800 a 9600 elgepelese volt)
 
   pinMode(PIN_A0, INPUT); // Ball 1
@@ -1018,7 +1021,8 @@ void loop() {
   CoilGuardReport(); // jelzi a sorosra, ha a tekercsvedelem kozbelepett
   SimPoll();         // probapadi szimulator lepteto - eles buildben ures
   AnalogTestPoll();  // analog teszt-stream a szerviz menunek (h_analog_test.ino)
-  if (intmon != 2) PollControlSerial(); // LT + MG_* soros protokoll; nevbevitelkor NEM, hogy ne utkozzon
+  PollControlSerial(); // Highscore Exit es LT/MG parancsok kozos sorparserben.
+  ServiceWeedMeter(); // Legfeljebb 25 ms-os I2C probalkozas a jateklogika elott.
 
   if (intmon != 0) { // 1 = attract, 2 = hiscore/nevbevitel, 3 = player select
     intmMode();
@@ -1312,7 +1316,6 @@ void Ballhandler() {
           player = player + 1;
           startmus = HIGH;
           firstplay = HIGH;
-          weedmetersend();
           if (player > numofplayers) {
             player = 1;
             ball = ball + 1;
@@ -1338,6 +1341,7 @@ void Ballhandler() {
           firstplay = HIGH;
         }
         if (intmon == 0) {
+          weedmetersend(); // a player mar a valid 1..4 tartomanyba visszafordult
           RestorePartyShotsForPlayer();
           SendPartyState();
         }
@@ -1838,7 +1842,6 @@ void intmMode() {
   if (intmon == 1) {
     runLightStartLed = 0;
     ChangePalettePeriodically();
-    incomeMsg = " ";
       
       /*
       miv1 = SimAnalogRead(a1);
@@ -1980,11 +1983,6 @@ void intmMode() {
   if (intmon == 2)
   {
 
-    if (Serial.available() > 0 && intmon == 2) {
-      // read the incoming:
-      incomeMsg = Serial.readString();
-    }
-
     //// Send buttonstates to Highscore table
     if (SimDigitalRead(leftFlipperButton) == LOW && lfHscSw == 0) {
       lfHscSw = 1;
@@ -2030,17 +2028,6 @@ void intmMode() {
     }
 
 
-    if (incomeMsg == "Exit") {
-        digitalWrite(PIN_A13, LOW);
-    }
-    if (incomeMsg == "Exit1") {
-        wTrig.trackPlayPoly(TRK_HISCORE_SKIP);
-        digitalWrite(PIN_A13, LOW);
-    }
-    if (incomeMsg == "Exit2") {
-      wTrig.trackPlayPoly(TRK_ADDSCORE);
-      digitalWrite(PIN_A13, LOW);
-    }
     if (SimDigitalRead(startButton) == LOW && SimDigitalRead(ballShooterButton) == LOW) {
         resetTimer++;
         if (resetTimer > 2000) {
@@ -4067,11 +4054,37 @@ void Weedspinner() {
 
 
 }
+boolean weedMeterPending = LOW;
+uint8_t weedMeterValue = 180;
+uint8_t weedMeterAttempts = 0;
+unsigned long weedMeterLastAttempt = 0;
+
 void weedmetersend() {
-  Wire.beginTransmission(8); // transmit to device #8
-  Wire.write("a");        // sends five bytes
-  Wire.write(weedmeter[player]);              // sends one byte
-  Wire.endTransmission();
+  if (player < 1 || player > 4) return;
+  weedMeterValue = (uint8_t)constrain(weedmeter[player], 0, 180);
+  weedMeterPending = HIGH;
+  weedMeterAttempts = 0;
+  weedMeterLastAttempt = millis() - 250UL; // az elso probalkozas rogton mehet
+}
+
+void ServiceWeedMeter() {
+  if (weedMeterPending != HIGH || millis() - weedMeterLastAttempt < 250UL) return;
+  weedMeterLastAttempt = millis();
+  Wire.beginTransmission(8);
+  Wire.write('a');
+  Wire.write(weedMeterValue);
+  uint8_t error = Wire.endTransmission();
+  if (Wire.getWireTimeoutFlag()) {
+    Wire.clearWireTimeoutFlag();
+    error = 5;
+  }
+  if (error == 0) {
+    weedMeterPending = LOW;
+  } else if (++weedMeterAttempts >= 3) {
+    weedMeterPending = LOW;
+    Serial.print(F("FAULT,SERVO_I2C,"));
+    Serial.println(error);
+  }
 }
 
 /////////////////////////////////////////////////
@@ -4743,7 +4756,8 @@ void BridgeCommon(uint8_t swPin, boolean* swFlag, unsigned long* swT,
                   boolean* active, uint8_t ledActA, uint8_t ledActB,
                   uint8_t ledAmbA, uint8_t ledAmbB,
                   unsigned long* comboReadT, unsigned long* comboWriteT,
-                  uint8_t firstHitSound, const char* comboVideoPrefix,
+                  uint8_t firstHitSound, uint16_t comboVoiceTrack,
+                  const char* comboVideoPrefix,
                   uint8_t comboEffectId, uint8_t normalHitEffectId,
                   boolean suppressFeedback,
                   const unsigned long* jpScr, const unsigned long* jpBns,
@@ -4809,10 +4823,8 @@ void BridgeCommon(uint8_t swPin, boolean* swFlag, unsigned long* swT,
           if (!suppressFeedback) {
             Serial.print(comboVideoPrefix);
             Serial.println(comboCounter);
-            // A regi 95/96 combo trackek nincsenek az SD-n. A befejezo hid
-            // valodi, mar hasznalt beszedhangja szol: low=009 wowman,
-            // high=036 Cheech beautiful.
-            wTrig.trackPlayPoly(firstHitSound);
+            // A befejezo hid karakterenek harom combo-bemondasa kozul egy szol.
+            PlaySpeechRange(comboVoiceTrack);
             PlayBakedEffectOnce(comboEffectId);
           }
         }
@@ -4917,6 +4929,7 @@ void BridgeLow() {
   static const unsigned long jpBns[6] = {  200,   200,   200,   200,   200,   200 };
   BridgeCommon(bridgeLowSwitch, &BrdgLowSw, &BrdgLowT, &BrdgLowActive,
                24, 25, 23, 17, &comboTimerH, &comboTimerL, 9,
+               TRK_VO_CHONG_COMBO_A,
                "ComboChong", 9, 31, false, jpScr, jpBns, false,
                Scoring::HURRY_BRIDGE_LOW_POINTS, "Point5");   // 15000
 }
@@ -4941,6 +4954,7 @@ void BridgeHigh() {
   boolean collectedExtraBall = CollectExtraBallLitAtHighRamp();
   BridgeCommon(bridgeHighSwitch, &BrdgHighSw, &BrdgHighT, &BrdgHighActive,
                36, 37, 50, 51, &comboTimerL, &comboTimerH, 36,
+               TRK_VO_CHEECH_COMBO_A,
                "ComboCheech", 10, 32, collectedExtraBall, jpScr, jpBns, true,
                Scoring::HURRY_BRIDGE_HIGH_POINTS, "Point7");  // 25000
   // A lottery altal kigyujtott Extra Ball sajat, tartos high-ramp jelzest

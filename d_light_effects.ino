@@ -450,8 +450,16 @@ void HandleLightTestCmd(const char* s) {
 // sosem tudja egymas elol "megenni" a byte-okat.
 char controlBuf[64];
 uint8_t controlLen = 0;
+boolean controlOverflow = LOW;
 
 void HandleControlCmd(const char* s) {
+  if (intmon == 2 &&
+      (strcmp(s, "Exit") == 0 || strcmp(s, "Exit1") == 0 || strcmp(s, "Exit2") == 0)) {
+    if (strcmp(s, "Exit1") == 0) wTrig.trackPlayPoly(TRK_HISCORE_SKIP);
+    if (strcmp(s, "Exit2") == 0) wTrig.trackPlayPoly(TRK_ADDSCORE);
+    digitalWrite(PIN_A13, LOW); // hardware reset -> friss attract mod
+    return;
+  }
   if (s[0] == 'L' && s[1] == 'T' && s[2] == ',') {
     HandleLightTestCmd(s);
     return;
@@ -473,15 +481,16 @@ void PollControlSerial() {
   while (Serial.available() > 0) {
     char c = Serial.read();
     if (c == '\n' || c == '\r') {
-      if (controlLen > 0) {
+      if (controlLen > 0 && controlOverflow != HIGH) {
         controlBuf[controlLen] = '\0';
         HandleControlCmd(controlBuf);
-        controlLen = 0;
       }
-    } else if (controlLen < sizeof(controlBuf) - 1) {
+      controlLen = 0;
+      controlOverflow = LOW;
+    } else if (controlOverflow != HIGH && controlLen < sizeof(controlBuf) - 1) {
       controlBuf[controlLen++] = c;
     } else {
-      controlLen = 0; // tullepes -> eldobjuk a sort
+      controlOverflow = HIGH; // az egesz tul hosszu sort dobjuk, nem csak az elejet
     }
   }
 }
