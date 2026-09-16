@@ -112,11 +112,11 @@ int simForceLottery = 0; // cinkelt UFO-lotto: 7=SpaceCoke, 8=pontlopas, 9=minig
 #define LED_GATE21_AMBIENT       56
 #define LED_GATE1                57
 #define LED_GATE1_AMBIENT        58
-#define LED_MICHOAKAN            59
-#define LED_ACAPULCO             60
+#define LED_ACAPULCO             59
+#define LED_MICHOAKAN            60
 #define LED_HIGHTABLE_FLASHER    61
-#define LED_THAI                 62
-#define LED_LABRADOR             63
+#define LED_LABRADOR             62
+#define LED_THAI                 63
 #define LED_POP1                 64
 #define LED_POP2                 65
 #define LED_POP3                 66
@@ -754,6 +754,7 @@ int loopSwitchSide = 43; // loop alsó
 // Booleans
 boolean looplightbool = LOW;
 boolean loopsw = LOW;
+boolean loopSideLatched = LOW; // kulon el-retesz: a top utan azonnali side is ervenyes
 // Timers
 unsigned long looptimer = 0;
 unsigned long loopswt = 0;
@@ -2060,6 +2061,9 @@ void inittable() {
     weedswitch2 = 0;
     weedswitch3 = 0;
     weedswitch4 = 0;
+    // A friss WEED-lotto/spinner jogosultsag csak az aktualis golyoe.
+    // A mar megsodort jointok es a sorok kulon, tartos gyujtemenyek.
+    weedQualified[player] = LOW;
     fishTankLightState1 = 0;
     fishTankLightState2 = 0;
     chongLightActiveSw = 0;
@@ -3019,7 +3023,9 @@ void Loopshoot() {
     loopsw = HIGH;
     wTrig.trackPlayPoly(TRK_BANANA);
   }
-  if (SimDigitalRead(loopSwitchSide) == LOW && millis() - 1000 < looptimer && loopsw == LOW) {
+  if (SimDigitalRead(loopSwitchSide) == LOW && loopSideLatched == LOW &&
+      looptimer != 0 && millis() - looptimer < 1000UL) {
+    loopSideLatched = HIGH;
     if (multiball != 0) {
       wTrig.trackPlayPoly(TRK_LOOP);
     }
@@ -3060,6 +3066,7 @@ void Loopshoot() {
   if (loopsw == HIGH && millis() - 100 > loopswt) {
     loopsw = LOW;
   }
+  if (SimDigitalRead(loopSwitchSide) == HIGH) loopSideLatched = LOW;
   // A nagyhid utani 5 mp-es ablak sajat, feher-magenta villogast kap, hogy
   // meg lehessen kulonboztetni a sima loop-jackpot piros-sargajatol.
   if (HighLoopComboArmed()) {
@@ -3187,6 +3194,7 @@ void Weed() {
     // multiball alatt ugysem lehet sodorni (lasd RollJointLit).
     if (multiball == 0) {
       PlayBakedEffectOnce(5); // Weedblast: overlaykent kell lejatszani
+      wTrig.trackPlayPoly(TRK_MULTIBALL_EXPLOSION); // 0129: egyszeri blast
       boolean canChoosePartyShot =
         (beerCredits[player] > 0 && jointStack[player] < 3);
       PlaySpeechRange(canChoosePartyShot
@@ -4045,9 +4053,11 @@ void Weedspinner() {
   }
 
   // Weed-mero kijelzo: progressziv zold kitoltes a szinttel. A vilagitas
-  // sorrendje: Acapulco(60), Michoakan(59), Thai(62), Labrador(63) - az elso
+  // sorrendje: Acapulco(59), Michoakan(60), Thai(63), Labrador(62) - az elso
   // weedm[player] darab zold, a tobbi szurke.
-  static const uint8_t weedMeterLeds[4] = { 60, 59, 62, 63 };
+  static const uint8_t weedMeterLeds[4] = {
+    LED_ACAPULCO, LED_MICHOAKAN, LED_THAI, LED_LABRADOR
+  };
   for (uint8_t i = 0; i < 4; i++) {
     leds[weedMeterLeds[i]] = (i < weedm[player]) ? CRGB::Green : CRGB::Gray;
   }
@@ -4467,12 +4477,12 @@ void Chong_switch() {
     TriggerHurryHit(HURRY_ZONE_CHONG);
     // Chong beszedhangok, a 0092-es uj dumaval.
     static const uint8_t chongTracks[11] = { 8, 9, 52, 53, 9, 79, 80, 82, 83, 85, 92 };
-    PlaySpeech(chongTracks, 11);
     
     /// 
     /// Active state
     ///
     if (chongLightActiveSw == HIGH) {
+      // Aktiv collectionnel ne keveredjen a sima Chong-talalat dumaja.
       CollectTimer = millis();
       CollectSw = LOW;
       chongLightActiveSw = LOW;
@@ -4504,6 +4514,7 @@ void Chong_switch() {
       }
     }
     else {
+      PlaySpeech(chongTracks, 11);
       Score(Scoring::INACTIVE_CHARACTER_POINTS,
             Scoring::INACTIVE_CHARACTER_BONUS);
     }
@@ -4543,13 +4554,13 @@ void Cheech_switch() {
     TriggerHurryHit(HURRY_ZONE_CHEECH);
     // Cheech beszedhangok (a regi 15 case-es switch helyett)
     static const uint8_t cheechTracks[15] = { 7, 35, 36, 37, 48, 49, 50, 54, 55, 56, 57, 58, 59, 81, 87 };
-    PlaySpeech(cheechTracks, 15);
 
     /// 
     ///  Active state
     ///
 
     if (cheechLightActiveSw == HIGH) {
+      // Aktiv collectionnel ne keveredjen a sima Cheech-talalat dumaja.
       chongLightActiveSw = LOW;
       cheechLightActiveSw = LOW;
       CollectTimer = millis();
@@ -4583,6 +4594,7 @@ void Cheech_switch() {
       }
     }
     else {
+      PlaySpeech(cheechTracks, 15);
       Score(Scoring::INACTIVE_CHARACTER_POINTS,
             Scoring::INACTIVE_CHARACTER_BONUS);
     }

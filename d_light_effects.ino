@@ -451,13 +451,28 @@ void HandleLightTestCmd(const char* s) {
 char controlBuf[64];
 uint8_t controlLen = 0;
 boolean controlOverflow = LOW;
+unsigned long controlLastByteAt = 0;
 
 void HandleControlCmd(const char* s) {
   if (intmon == 2 &&
       (strcmp(s, "Exit") == 0 || strcmp(s, "Exit1") == 0 || strcmp(s, "Exit2") == 0)) {
     if (strcmp(s, "Exit1") == 0) wTrig.trackPlayPoly(TRK_HISCORE_SKIP);
     if (strcmp(s, "Exit2") == 0) wTrig.trackPlayPoly(TRK_ADDSCORE);
-    digitalWrite(PIN_A13, LOW); // hardware reset -> friss attract mod
+    // A kulso resetvonal nem megbizhato minden gepen: a protokoll-kilepes
+    // onmagaban is visszaallitja az attract jatekmodot.
+    intmon = 1;
+    numofplayers = 1;
+    shoot = 0;
+    firstplay = HIGH;
+    extraball = 0;
+    multiball = 0;
+    BIP = 1;
+    hurryUp = LOW;
+    ballsaversw = LOW;
+    highLoopArmT = 0;
+    multiloopsw = LOW;
+    heysoundtimer = millis();
+    Serial.println(F("Attract"));
     return;
   }
   if (s[0] == 'L' && s[1] == 'T' && s[2] == ',') {
@@ -489,8 +504,22 @@ void PollControlSerial() {
       controlOverflow = LOW;
     } else if (controlOverflow != HIGH && controlLen < sizeof(controlBuf) - 1) {
       controlBuf[controlLen++] = c;
+      controlLastByteAt = millis();
     } else {
       controlOverflow = HIGH; // az egesz tul hosszu sort dobjuk, nem csak az elejet
+    }
+  }
+  // Regi GUI-verzio: az Exit parancsot sorveg nelkul kuldi. Csak a harom
+  // pontosan egyezo highscore-kilepest fogadjuk el rovid UART-csend utan;
+  // az MG/LT/AT/WHEEL parancsok tovabbra is sorveghez kotottek.
+  if (intmon == 2 && controlLen > 0 && controlOverflow != HIGH &&
+      millis() - controlLastByteAt >= 200UL) {
+    controlBuf[controlLen] = '\0';
+    if (strcmp(controlBuf, "Exit") == 0 ||
+        strcmp(controlBuf, "Exit1") == 0 ||
+        strcmp(controlBuf, "Exit2") == 0) {
+      HandleControlCmd(controlBuf);
+      controlLen = 0;
     }
   }
 }

@@ -21,9 +21,12 @@ class HighscoreSerialI2CTests(unittest.TestCase):
         self.assertNotIn("Serial.readString()", SKETCH)
         self.assertIn("if (c == '\\n' || c == '\\r')", LIGHTS)
         self.assertIn("HandleControlCmd(controlBuf);", LIGHTS)
+        self.assertIn("millis() - controlLastByteAt >= 200UL", LIGHTS)
         for variant in ("Exit", "Exit1", "Exit2"):
             self.assertIn(f'strcmp(s, "{variant}") == 0', LIGHTS)
-        self.assertIn("digitalWrite(PIN_A13, LOW); // hardware reset", LIGHTS)
+        self.assertIn("intmon = 1;", LIGHTS)
+        self.assertIn('Serial.println(F("Attract"));', LIGHTS)
+        self.assertNotIn("digitalWrite(PIN_A13, LOW); // hardware reset", LIGHTS)
 
     def test_overlong_command_cannot_execute_a_valid_looking_suffix(self):
         self.assertIn("boolean controlOverflow = LOW;", LIGHTS)
