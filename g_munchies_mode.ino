@@ -58,6 +58,17 @@ boolean MunchiesOwnsGameLoop() {
   return munchiesMode != MG_IDLE;
 }
 
+// Kulso, biztonsagos megszakitas a fizikai szervizmodhoz. A VUK-kidobast
+// maga a service abort kezeli, ez a rutin csak a minijatek allapotgepet
+// engedi el es ertesiti a GUI-t, ha epp aktiv volt.
+void AbortMunchiesForService() {
+  if (munchiesMode != MG_IDLE) SendMunchiesAbort("SERVICE");
+  munchiesMode = MG_IDLE;
+  munchiesLight = MG_LIGHT_IDLE;
+  munchiesWaitForUfoClear = false;
+  digitalWrite(ufoCoil, LOW);
+}
+
 uint16_t MunchiesUfoReleaseThreshold() {
   uint16_t releaseAt = analogThreshold[5] + 40U;
   return releaseAt > 1023U ? 1023U : releaseAt;

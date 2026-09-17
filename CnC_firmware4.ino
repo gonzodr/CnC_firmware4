@@ -143,16 +143,18 @@ int simForceLottery = 0; // cinkelt UFO-lotto: 7=SpaceCoke, 8=pontlopas, 9=minig
 #define TRK_GATESUCCESS        27
 #define TRK_KVAKK              28
 #define TRK_BIGYONG            29
+#define TRK_UFO_EJECT_BALL      34
 #define TRK_CHEECHBEAUTY       36
 #define TRK_CHEECHFART         37
 #define TRK_SHOOTOUTUFO        42
+#define TRK_UFO_GET_OUT         43
 #define TRK_UFOALARM           44
 #define TRK_HAPPYUFO           45
 #define TRK_MISSU              46
 #define TRK_LETSPLAY           47
 #define TRK_DAVENOTHERE        51
-#define TRK_MUS_TRIPLE_LOOP3   64
-#define TRK_MUS_SWING_LOOP4    65
+#define TRK_MUS_THAI_STICK     63
+#define TRK_MUS_LABRADOR       64
 #define TRK_WEEDFULL           72
 #define TRK_JACKPOT            73
 #define TRK_DANGER             86
@@ -283,6 +285,10 @@ namespace Scoring {
   const unsigned int  BRIDGE_BONUS = 100U;
   const unsigned long INACTIVE_CHARACTER_POINTS = 200UL;
   const unsigned int  INACTIVE_CHARACTER_BONUS = 50U;
+  // Multiball alatt a C&C complete eltesszuk kesobbre. Addig a ket karakter
+  // erintkezoje eros, de nem gyujt collectible-t.
+  const unsigned long MULTIBALL_CHARACTER_POINTS = 5000UL;
+  const unsigned int  MULTIBALL_CHARACTER_BONUS = 250U;
   const unsigned long GIFT_CNC_POINTS = 5000UL;
   const unsigned int  GIFT_CNC_BONUS = 500U;
   const unsigned long GIFT_OTHER_POINTS = 5000UL;
@@ -655,6 +661,7 @@ int cheechSwitch = 12; // Cheech Trigger
 // Boolean
 boolean chongLightActiveSw = LOW;
 boolean cheechLightActiveSw = LOW;
+boolean cncCollectionLit[] = { LOW, LOW, LOW, LOW, LOW };
 boolean chongoffsw = LOW;
 boolean cheechoffsw = LOW;
 boolean chongactive = LOW;
@@ -776,6 +783,33 @@ int startButton = 47; // start
 int giftsw = 0;
 int intmon = 1;
 int heysoundcounter = 0;
+// Szervizmenu: attractban Bal -> Shoot -> Jobb -> Start nyitja meg.
+// A 4-es intmon kizarolag a GUI szervizmenu hardveres vezerlese, nem jatekmod.
+uint8_t serviceComboStep = 0;
+unsigned long serviceComboLastPress = 0;
+boolean serviceLeftHeld = LOW;
+boolean serviceRightHeld = LOW;
+boolean serviceShootHeld = LOW;
+boolean serviceStartHeld = LOW;
+const unsigned long SERVICE_COMBO_STEP_TIMEOUT_MS = 2000UL;
+// Jatek kozbeni szerviz-belepes: az ot Start csak "elesiti" a kodot,
+// maga a Bal -> Shoot -> Jobb -> Start sor inditja a biztonsagos leallitast.
+uint8_t serviceGameStartCount = 0;
+unsigned long serviceGameLastStartAt = 0;
+boolean serviceGameStartHeld = LOW;
+boolean serviceGameArmed = LOW;
+unsigned long serviceGameArmedAt = 0;
+const unsigned long SERVICE_GAME_START_WINDOW_MS = 2500UL;
+const unsigned long SERVICE_GAME_ARMED_TIMEOUT_MS = 8000UL;
+
+// Szervizbe lepve a GUI rogton menu-re valt, a firmware pedig a hatterben
+// varja meg, hogy minden golyo visszakeruljon a tarba.
+boolean serviceAbortActive = LOW;
+boolean serviceAbortUfoPulse = LOW;
+boolean serviceAbortShooterPulse = LOW;
+unsigned long serviceAbortUfoAt = 0;
+unsigned long serviceAbortShooterAt = 0;
+unsigned long serviceAbortFullSince = 0;
 // Commercial-style plumb-bob tilt: ket figyelmeztetes utan a harmadik,
 // kulonallo harangerintes tilteli az aktualis golyot.
 const uint8_t TILT_WARNINGS_ALLOWED = 2;
@@ -795,8 +829,6 @@ int hurryhitcounter = 0;
 // csak a folso szalagon (68-114) marad. Regi neve 'fasz' volt.
 int runLightStartLed = 0;
 int randGift = 0;
-int resetTimer = 0;
-
 boolean hurryhitbool = 0;
 boolean shooteffbool = LOW;
 boolean blinky = LOW;
@@ -1027,10 +1059,24 @@ void loop() {
 
   if (intmon != 0) { // 1 = attract, 2 = hiscore/nevbevitel, 3 = player select
     intmMode();
+    if (intmon != 0) {
+      // Az attract/UI modokban nem futhat a shooter auto-kick es mas
+      // jatektekercs-logika, de a kozosen hasznalt LED-kirajzolasnak igen:
+      // kulonben highscore utan a firmware visszavalt ugyan attractra,
+      // csak a palya fagyott fenykep marad.
+      static int attractLightIndex = 0;
+      attractLightIndex++;
+      FillLEDsFromPaletteColors(attractLightIndex, 0);
+      RunLightTest();
+      FastLED.show();
+      delay(1000 / UPDATES_PER_SECOND);
+      return;
+    }
   }
 
 
   if (intmon == LOW) {
+    if (PollGameplayServiceEntry()) return;
     if (MunchiesOwnsGameLoop()) {
       // A golyo a VUK-ban parkol: a fizikai jateklogika es a flippertekercsek
       // szunetelnek, de a soros input, watchdog es tekercsvedelem tovabb fut.
@@ -1565,13 +1611,13 @@ void Multiball() {
       wTrig.trackResume(TRK_THEME);
     }
     if (multiball == 3) {
-      wTrig.trackPause(TRK_MUS_TRIPLE_LOOP3);
-      wTrig.trackLoop(TRK_MUS_TRIPLE_LOOP3, 0);
+      wTrig.trackPause(TRK_MUS_THAI_STICK);
+      wTrig.trackLoop(TRK_MUS_THAI_STICK, 0);
       wTrig.trackResume(TRK_THEME);
     }
     if (multiball == 4) {
-      wTrig.trackPause(TRK_MUS_SWING_LOOP4);
-      wTrig.trackLoop(TRK_MUS_SWING_LOOP4, 0);
+      wTrig.trackPause(TRK_MUS_LABRADOR);
+      wTrig.trackLoop(TRK_MUS_LABRADOR, 0);
       wTrig.trackResume(TRK_THEME);
     }
     if (multiball == 5) {
@@ -1839,8 +1885,212 @@ const TProgmemPalette16 myRedWhiteBluePalette_p PROGMEM =
 /////////////////////////////////////////////////
 /////////////////////////////////////////////////
 
+boolean ServiceButtonPressed(int pin, boolean* held) {
+  if (SimDigitalRead(pin) == LOW) {
+    if (*held == LOW) {
+      *held = HIGH;
+      return HIGH;
+    }
+  }
+  else {
+    *held = LOW;
+  }
+  return LOW;
+}
+
+void ResetServiceCombo() {
+  serviceComboStep = 0;
+  serviceComboLastPress = 0;
+}
+
+// A tenyleges negygombos kod. Az attract es a jatek kozbeni, elotte elesitett
+// belepes ugyanazt hasznalja.
+boolean PollServiceCode() {
+  const unsigned long now = millis();
+  if (serviceComboStep != 0 &&
+      now - serviceComboLastPress > SERVICE_COMBO_STEP_TIMEOUT_MS) {
+    ResetServiceCombo();
+  }
+
+  // 1=Bal, 2=Shoot, 3=Jobb, 4=Start. Egy hibas gomb ujrakezdi a sort,
+  // de a Bal rogton lehet az uj elso lepes.
+  uint8_t press = 0;
+  if (ServiceButtonPressed(leftFlipperButton, &serviceLeftHeld)) press = 1;
+  else if (ServiceButtonPressed(ballShooterButton, &serviceShootHeld)) press = 2;
+  else if (ServiceButtonPressed(rightflipperButton, &serviceRightHeld)) press = 3;
+  else if (ServiceButtonPressed(startButton, &serviceStartHeld)) press = 4;
+  if (press == 0) return LOW;
+
+  static const uint8_t sequence[4] = { 1, 2, 3, 4 };
+  if (press == sequence[serviceComboStep]) {
+    serviceComboStep++;
+    serviceComboLastPress = now;
+    if (serviceComboStep == 4) {
+      ResetServiceCombo();
+      return HIGH;
+    }
+  }
+  else {
+    serviceComboStep = (press == 1) ? 1 : 0;
+    serviceComboLastPress = serviceComboStep ? now : 0;
+  }
+  return LOW;
+}
+
+void DisableGameplayCoilsForService() {
+  digitalWrite(leftFlipperBat, LOW);
+  digitalWrite(rightFlipperBat, LOW);
+  digitalWrite(leftSlingshotCoil, LOW);
+  digitalWrite(rightSlingshotCoil, LOW);
+  digitalWrite(pop1Coil, LOW);
+  digitalWrite(pop2Coil, LOW);
+  digitalWrite(pop3Coil, LOW);
+  digitalWrite(ballTroughCoil, LOW);
+  digitalWrite(shooterlaneCoil, LOW);
+}
+
+void BeginServiceAbort() {
+  const unsigned long now = millis();
+  serviceGameArmed = LOW;
+  serviceGameStartCount = 0;
+  serviceAbortActive = HIGH;
+  serviceAbortUfoPulse = HIGH;
+  serviceAbortShooterPulse = LOW;
+  serviceAbortUfoAt = now;
+  serviceAbortShooterAt = 0;
+  serviceAbortFullSince = 0;
+
+  // Minden jatekmod azonnal megszakad; a GUI a SERVICE_MENU_ENTER-re mar
+  // ebben a frame-ben menu-re valt, nem var a drainre.
+  AbortMunchiesForService();
+  ufoWheelWaiting = LOW;
+  effect = LOW;
+  effectID = 0;
+  ballsaversw = LOW;
+  hurryUp = LOW;
+  multiball = LOW;
+  shoot = LOW;
+  kick = LOW;
+  AutoKick = LOW;
+  wTrig.stopAllTracks();
+  DisableGameplayCoilsForService();
+  intmon = 4;
+  Serial.println(F("SERVICE_MENU_ENTER"));
+}
+
+void ServiceAbortUpdate() {
+  if (!serviceAbortActive) return;
+  const unsigned long now = millis();
+  DisableGameplayCoilsForService();
+
+  // A VUK-ban vagy a kilovosavban parkolo golyo ne maradjon a gepben a
+  // szerviz alatt. Mindket tekercs legfeljebb egy 50 ms-os impulzust kap.
+  if (serviceAbortUfoPulse) {
+    digitalWrite(ufoCoil, HIGH);
+    if (now - serviceAbortUfoAt >= 50UL) {
+      digitalWrite(ufoCoil, LOW);
+      serviceAbortUfoPulse = LOW;
+      serviceAbortShooterAt = now + 100UL;
+    }
+    return;
+  }
+  if (!serviceAbortShooterPulse && serviceAbortShooterAt != 0 &&
+      now >= serviceAbortShooterAt && SimDigitalRead(shooterLaneSwitch) == LOW) {
+    serviceAbortShooterPulse = HIGH;
+    serviceAbortShooterAt = now;
+    digitalWrite(shooterlaneCoil, HIGH);
+    return;
+  }
+  if (serviceAbortShooterPulse) {
+    digitalWrite(shooterlaneCoil, HIGH);
+    if (now - serviceAbortShooterAt >= 50UL) {
+      digitalWrite(shooterlaneCoil, LOW);
+      serviceAbortShooterPulse = LOW;
+      serviceAbortShooterAt = 0;
+    }
+    return;
+  }
+
+  // A tar szenzorait szervizben is olvassuk. Ha mind az ot golyo stabilan
+  // visszaert, a jatek mar attract-kesz, de az intmon=4 marad: igy a GUI
+  // menuje es a negy fizikai gomb tovabbra is hasznalhato a kilepesig.
+  MIV(HIGH);
+  if (BIS == 5) {
+    if (serviceAbortFullSince == 0) serviceAbortFullSince = now;
+    if (now - serviceAbortFullSince >= 500UL) {
+      serviceAbortActive = LOW;
+      BIP = 1;
+      ball = 1;
+      player = 1;
+      numofplayers = 1;
+      firstplay = HIGH;
+      Serial.println(F("SERVICE_DRAINED"));
+    }
+  }
+  else {
+    serviceAbortFullSince = 0;
+  }
+}
+
+boolean PollAttractServiceCombo() {
+  if (PollServiceCode()) {
+    intmon = 4;
+    Serial.println(F("SERVICE_MENU_ENTER"));
+    return HIGH; // a zaro Start nem indithat jatekosvalasztot
+  }
+  return LOW;
+}
+
+boolean PollGameplayServiceEntry() {
+  const unsigned long now = millis();
+  if (ServiceButtonPressed(startButton, &serviceGameStartHeld)) {
+    if (now - serviceGameLastStartAt > SERVICE_GAME_START_WINDOW_MS) {
+      serviceGameStartCount = 0;
+    }
+    serviceGameLastStartAt = now;
+    if (serviceGameStartCount < 5) serviceGameStartCount++;
+    if (serviceGameStartCount == 5) {
+      serviceGameStartCount = 0;
+      serviceGameArmed = HIGH;
+      serviceGameArmedAt = now;
+      ResetServiceCombo();
+      Serial.println(F("SERVICE_ARMED"));
+    }
+  }
+
+  if (!serviceGameArmed) return LOW;
+  if (now - serviceGameArmedAt > SERVICE_GAME_ARMED_TIMEOUT_MS) {
+    serviceGameArmed = LOW;
+    ResetServiceCombo();
+    Serial.println(F("SERVICE_DISARMED"));
+    return LOW;
+  }
+  if (PollServiceCode()) {
+    BeginServiceAbort();
+    return HIGH;
+  }
+  return LOW;
+}
+
+void ServiceMenuInputPoll() {
+  if (ServiceButtonPressed(leftFlipperButton, &serviceLeftHeld))
+    Serial.println(F("SERVICE_LEFT"));
+  if (ServiceButtonPressed(rightflipperButton, &serviceRightHeld))
+    Serial.println(F("SERVICE_RIGHT"));
+  if (ServiceButtonPressed(startButton, &serviceStartHeld))
+    Serial.println(F("SERVICE_CONFIRM"));
+  if (ServiceButtonPressed(ballShooterButton, &serviceShootHeld))
+    Serial.println(F("SERVICE_BACK"));
+}
+
 void intmMode() {
+  if (intmon == 4) {
+    ServiceAbortUpdate();
+    ServiceMenuInputPoll();
+    return;
+  }
   if (intmon == 1) {
+    if (PollAttractServiceCombo()) return;
     runLightStartLed = 0;
     ChangePalettePeriodically();
       
@@ -1947,6 +2197,7 @@ void intmMode() {
         beerCredits[p] = 0;
         jointStack[p] = 0;
         weedQualified[p] = LOW;
+        cncCollectionLit[p] = LOW;
       }
       RestorePartyShotsForPlayer();
       SendPartyState();
@@ -2029,12 +2280,6 @@ void intmMode() {
     }
 
 
-    if (SimDigitalRead(startButton) == LOW && SimDigitalRead(ballShooterButton) == LOW) {
-        resetTimer++;
-        if (resetTimer > 2000) {
-            digitalWrite(PIN_A13, LOW);
-        }
-    }
   }
 
 }
@@ -2251,6 +2496,9 @@ void EnsureBallSave(unsigned long minimumMs) {
 void StartUfoEjectBallSave(unsigned long minimumMs) {
   if (ufoEjectSaveStarted == LOW) {
     ufoEjectSaveStarted = HIGH;
+    // A fizikai UFO-kidobas egyetlen, kozos hangja. A flag miatt a tekercs
+    // teljes 50 ms-os huzasa alatt sem indul ujra frame-enkent.
+    wTrig.trackPlayPoly(TRK_UFO_EJECT_BALL);
     EnsureBallSave(minimumMs);
     // Az altalanos ball-save nem kap kulon effektet: ez kifejezetten az UFO
     // altal visszaadott golyo rovid vedelmet jelzi.
@@ -2875,6 +3123,14 @@ void Left_Slingshot() {
 /////////////////////////////////////////////////
 
 void CnC() {
+  // A mar megszerzett collection nem vesz el multiball alatt: soteten var,
+  // majd a mod vege utan ugyanennek a jatekosnak ujra felgyullad.
+  const boolean collectionAvailable =
+      (player >= 1 && player <= 4 && cncCollectionLit[player] == HIGH &&
+       multiball == 0);
+  chongLightActiveSw = collectionAvailable;
+  cheechLightActiveSw = collectionAvailable;
+
   if (SimDigitalRead(cncLetterC3rd) == HIGH) {
     Blinktimer();
     if (effect == LOW) {
@@ -2966,11 +3222,10 @@ void CnC() {
     cncoff = 1;
     Score(Scoring::CNC_COMPLETE_POINTS, Scoring::CNC_COMPLETE_BONUS);
     PlayBakedEffectOnce(21); // C&C Complete: megnyilik Cheech es Chong lovese
+    cncCollectionLit[player] = HIGH;
   }
 
   if (cncoff == 1) {
-    chongLightActiveSw = HIGH;
-    cheechLightActiveSw = HIGH;
     if (millis() - 1000 < cnctimer) {
       Blinktimer();
       if (ledState == HIGH) {
@@ -3029,7 +3284,18 @@ void Loopshoot() {
     if (multiball != 0) {
       wTrig.trackPlayPoly(TRK_LOOP);
     }
-    if (HighLoopComboArmed()) {
+    if (multiball == 5) {
+      // Space Coke sajat fo jackpotja: minden ervenyes teljes loop kozvetlenul
+      // a 200000-es Psychedelic Jackpotot adja, nem kell elotte nagyhid.
+      const unsigned long spaceCokeJackpot =
+          Scoring::HIGH_LOOP_COMBO_SCR[5];
+      PlayJackpotFeedback(spaceCokeJackpot, 1);
+      wTrig.trackPlayPoly(TRK_BLOB);
+      ScoreJackpot(spaceCokeJackpot, Scoring::LOOP_JACKPOT_BONUS);
+      multiloopsw = 0;
+      highLoopArmT = 0;
+    }
+    else if (HighLoopComboArmed()) {
       // A nagyhid utani loop a sajat, multiball-szinthez kotott osszeget
       // fizeti. Ez KIVALTJA a sima loop-jackpotot ugyanazon a lovesen, hogy
       // ne fizessunk ketszer; a multiloopsw armozva marad egy kesobbi loopra.
@@ -3952,7 +4218,10 @@ void Weedspinner() {
         static const int8_t         mbDecr[4]  = { 25, 15, 10, 8 };
         static const unsigned long  mbScr[4]   = { 10000, 20000, 30000, 40000 };
         static const unsigned long  mbBns[4]   = {   500,  1000,  1500,  2000 };
-        static const uint8_t        mbLoop[4]  = { 89, 88, 64, 65 }; // loopolt zene
+        static const uint8_t        mbLoop[4]  = {
+          TRK_MUS_STRAWBERRY2, TRK_MUS_ROCKFIGHT,
+          TRK_MUS_THAI_STICK, TRK_MUS_LABRADOR
+        }; // loopolt zene
         static const uint16_t       mbVoice[4] = {
           TRK_VO_MULTIBALL_ACAPULCO_A,
           TRK_VO_MULTIBALL_MICHOACAN_A,
@@ -4166,6 +4435,8 @@ void AwardUfoLottery() {
     // masikat, ha kell (multiball-start).
     PlaySpeechRange(TRK_VO_UFO_SPACE_COKE_START_A);
     wTrig.trackPlayPoly(TRK_FIREWORK);
+    wTrig.trackPause(TRK_THEME);
+    wTrig.trackLoop(TRK_MUS_SPACECOKE, 1);
     wTrig.trackPlayPoly(TRK_MUS_SPACECOKE);
     wTrig.trackPlayPoly(TRK_CHEECH_SPACECOKE); // filmes Cheech-orditas
     ufosw = 0;
@@ -4287,6 +4558,7 @@ void UFOO() {
       }
       if (ufoshoot == 2) {
         wTrig.trackPause(TRK_THEME);
+        wTrig.trackPlayPoly(TRK_UFO_GET_OUT);
         PlaySpeechRange(TRK_VO_UFO_NO_WEED_EJECT_A);
       }
       if (ufoshoot == 3) {
@@ -4481,12 +4753,13 @@ void Chong_switch() {
     /// 
     /// Active state
     ///
-    if (chongLightActiveSw == HIGH) {
+    if (chongLightActiveSw == HIGH && multiball == 0) {
       // Aktiv collectionnel ne keveredjen a sima Chong-talalat dumaja.
       CollectTimer = millis();
       CollectSw = LOW;
       chongLightActiveSw = LOW;
       cheechLightActiveSw = LOW;
+      cncCollectionLit[player] = LOW;
       chongCollectives[player] += 1;
       PlayBakedEffectOnce(7); // ChongCollect: egyszer
       if (chongCollectives[player] == 1) {
@@ -4515,8 +4788,14 @@ void Chong_switch() {
     }
     else {
       PlaySpeech(chongTracks, 11);
-      Score(Scoring::INACTIVE_CHARACTER_POINTS,
-            Scoring::INACTIVE_CHARACTER_BONUS);
+      if (multiball != 0) {
+        Score(Scoring::MULTIBALL_CHARACTER_POINTS,
+              Scoring::MULTIBALL_CHARACTER_BONUS);
+      }
+      else {
+        Score(Scoring::INACTIVE_CHARACTER_POINTS,
+              Scoring::INACTIVE_CHARACTER_BONUS);
+      }
     }
   }
 
@@ -4559,10 +4838,11 @@ void Cheech_switch() {
     ///  Active state
     ///
 
-    if (cheechLightActiveSw == HIGH) {
+    if (cheechLightActiveSw == HIGH && multiball == 0) {
       // Aktiv collectionnel ne keveredjen a sima Cheech-talalat dumaja.
       chongLightActiveSw = LOW;
       cheechLightActiveSw = LOW;
+      cncCollectionLit[player] = LOW;
       CollectTimer = millis();
       CollectSw = 1;
       cheechCollectives[player] += 1;
@@ -4595,8 +4875,14 @@ void Cheech_switch() {
     }
     else {
       PlaySpeech(cheechTracks, 15);
-      Score(Scoring::INACTIVE_CHARACTER_POINTS,
-            Scoring::INACTIVE_CHARACTER_BONUS);
+      if (multiball != 0) {
+        Score(Scoring::MULTIBALL_CHARACTER_POINTS,
+              Scoring::MULTIBALL_CHARACTER_BONUS);
+      }
+      else {
+        Score(Scoring::INACTIVE_CHARACTER_POINTS,
+              Scoring::INACTIVE_CHARACTER_BONUS);
+      }
     }
   }
 

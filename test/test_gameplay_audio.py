@@ -43,6 +43,13 @@ class GameplayAudioContractTests(unittest.TestCase):
             r"trackLoop\(mbLoop\[lvl\], 1\);[\s\S]*?trackPlayPoly\(mbLoop\[lvl\]\);",
         )
 
+    def test_thai_stick_and_labrador_use_their_assigned_music_tracks(self):
+        self.assertRegex(SKETCH, r"#define TRK_MUS_THAI_STICK\s+63")
+        self.assertRegex(SKETCH, r"#define TRK_MUS_LABRADOR\s+64")
+        loop_table = re.search(r"mbLoop\[4\]\s*=\s*\{(.*?)\};", SKETCH, re.DOTALL)
+        self.assertIsNotNone(loop_table)
+        self.assertIn("TRK_MUS_THAI_STICK, TRK_MUS_LABRADOR", loop_table.group(1))
+
     def test_combo_uses_finishing_bridge_character_voice(self):
         self.assertNotIn("TRK_COMBO1", SKETCH)
         self.assertNotIn("TRK_COMBO2", SKETCH)
@@ -52,6 +59,31 @@ class GameplayAudioContractTests(unittest.TestCase):
         self.assertRegex(
             SKETCH,
             r"&comboTimerH, &comboTimerL, 9,\s*TRK_VO_CHONG_COMBO_A",
+        )
+
+    def test_space_coke_music_loops_until_multiball_end(self):
+        self.assertRegex(
+            SKETCH,
+            r"trackLoop\(TRK_MUS_SPACECOKE, 1\);\s*"
+            r"wTrig\.trackPlayPoly\(TRK_MUS_SPACECOKE\);",
+        )
+
+    def test_ufo_no_weed_eject_restores_legacy_effects(self):
+        self.assertRegex(SKETCH, r"#define TRK_UFO_EJECT_BALL\s+34")
+        self.assertRegex(SKETCH, r"#define TRK_UFO_GET_OUT\s+43")
+        self.assertRegex(
+            SKETCH,
+            r"(?s)void StartUfoEjectBallSave\(.*?trackPlayPoly\(TRK_UFO_EJECT_BALL\)",
+        )
+        self.assertRegex(
+            SKETCH,
+            r"(?s)if \(ufoshoot == 2\).*?trackPlayPoly\(TRK_UFO_GET_OUT\).*?"
+            r"PlaySpeechRange\(TRK_VO_UFO_NO_WEED_EJECT_A\)",
+        )
+        self.assertRegex(
+            SKETCH,
+            r"trackPause\(TRK_MUS_SPACECOKE\);\s*"
+            r"wTrig\.trackLoop\(TRK_MUS_SPACECOKE, 0\);",
         )
         self.assertRegex(
             SKETCH,

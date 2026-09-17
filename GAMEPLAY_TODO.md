@@ -7,8 +7,9 @@ ebben a merfoldkoben.
 
 ## P0 - audit es forrasigazsag
 
-- [x] Highscore Exit/Exit1/Exit2 kozos soros parseren: a GUI ujsoros
-      parancsa highscore modban is A13-as resetet indit (2026-09-15).
+- [x] Highscore Exit/Exit1/Exit2 kozos soros parseren: az uj GUI ujsoros,
+      a regi GUI sorveg nelkuli parancsat is fogadja; firmwarebol valt vissza
+      attract modba, kulso A13 reset nelkul (2026-09-16).
 - [x] Szervo UNO I2C kuldes: AVR Wire 25 ms timeout, 250 ms koz a
       probalkozasok kozott, maximum 3 probalkozas es FAULT sor (2026-09-15).
 - [ ] Gepen teszt: highscore nevmentes utan Exit1, reset es uj jatek;
@@ -26,6 +27,13 @@ ebben a merfoldkoben.
       (`Ufo6`/`Ufo7` aliasok megorzese a kompatibilitashoz).
 
 ## P0 - hianyzo visszajelzesek
+
+- [ ] Hurry Up ramp bonuszokhoz kulon hang. Tesztjegyzet: 15000/20000;
+      a jelenlegi firmware szerinti tenyleges kifizetes 15000/25000, ezt a
+      hangok elkeszitese elott egyeztetni kell.
+- [ ] Space Coke 200000 Psychedelic Jackpothoz dedikalt ertekbemondas.
+      Jelenleg az altalanos jackpot-hang szol; a videoasset kulon masolando,
+      mert a GUI `src/assets/Videos` mappaja nincs Gitben.
 
 - [x] Dedikalt fenyeffekt a sima, aktivalt kis- es nagyhid talalatara:
       ID31 a kis hidra, ID32 a nagy hidra. Az ID5 Weedblast tovabbra is

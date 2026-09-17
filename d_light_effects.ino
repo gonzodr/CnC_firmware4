@@ -329,6 +329,16 @@ void StopHurryUpBakedOverlay() {
   hurryOverlayStartT = 0;
 }
 
+// Highscore utan nem Arduino-reset tel kell visszamenni attractba. Ez a
+// feny-effekt motor osszes jatekbol ottmaradhato reteget leallitja, hogy a
+// palettas attract-feny a kovetkezo frame-ben teljesen atvehesse a palyat.
+void ResetLightEffectsForAttract() {
+  StopFullBakedEffect();
+  overlayIdx = -1;
+  overlayStartT = 0;
+  StopHurryUpBakedOverlay();
+}
+
 void RunHurryUpBakedOverlay() {
   if (hurryUp != HIGH || hurryOverlayIdx < 0) return;
 
@@ -454,6 +464,13 @@ boolean controlOverflow = LOW;
 unsigned long controlLastByteAt = 0;
 
 void HandleControlCmd(const char* s) {
+  if (intmon == 4 && strcmp(s, "SERVICE_EXIT") == 0) {
+    intmon = 1;
+    numofplayers = 1;
+    heysoundtimer = millis();
+    Serial.println(F("Attract"));
+    return;
+  }
   if (intmon == 2 &&
       (strcmp(s, "Exit") == 0 || strcmp(s, "Exit1") == 0 || strcmp(s, "Exit2") == 0)) {
     if (strcmp(s, "Exit1") == 0) wTrig.trackPlayPoly(TRK_HISCORE_SKIP);
@@ -471,6 +488,7 @@ void HandleControlCmd(const char* s) {
     ballsaversw = LOW;
     highLoopArmT = 0;
     multiloopsw = LOW;
+    ResetLightEffectsForAttract();
     heysoundtimer = millis();
     Serial.println(F("Attract"));
     return;

@@ -38,6 +38,26 @@ class GameplayFieldFixes(unittest.TestCase):
         self.assertNotIn("looptimer && loopsw == LOW", SKETCH)
         self.assertIn("Scoring::HIGH_LOOP_COMBO_SCR[multiball]", SKETCH)
 
+    def test_space_coke_loop_is_direct_psychedelic_jackpot(self):
+        loop = re.search(r"void Loopshoot\(\) \{(.*?)\n\}", SKETCH, re.DOTALL)
+        self.assertIsNotNone(loop)
+        self.assertRegex(
+            loop.group(1),
+            r"(?s)if \(multiball == 5\).*?HIGH_LOOP_COMBO_SCR\[5\].*?"
+            r"PlayJackpotFeedback\(spaceCokeJackpot, 1\).*?"
+            r"ScoreJackpot\(spaceCokeJackpot",
+        )
+
+    def test_cnc_collection_waits_through_multiball_and_is_consumed_once(self):
+        self.assertIn("boolean cncCollectionLit[]", SKETCH)
+        self.assertRegex(
+            SKETCH,
+            r"cncCollectionLit\[player\] == HIGH &&\s*multiball == 0",
+        )
+        self.assertIn("cncCollectionLit[player] = HIGH;", SKETCH)
+        self.assertEqual(SKETCH.count("cncCollectionLit[player] = LOW;"), 2)
+        self.assertEqual(SKETCH.count("Scoring::MULTIBALL_CHARACTER_POINTS"), 2)
+
     def test_collectible_hit_does_not_use_inactive_voice_pool(self):
         for func, voice in (("Chong_switch", "chongTracks"),
                             ("Cheech_switch", "cheechTracks")):
