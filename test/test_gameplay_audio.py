@@ -50,6 +50,22 @@ class GameplayAudioContractTests(unittest.TestCase):
         self.assertIsNotNone(loop_table)
         self.assertIn("TRK_MUS_THAI_STICK, TRK_MUS_LABRADOR", loop_table.group(1))
 
+    def test_hurry_cashouts_randomly_use_cheech_or_chong_for_each_value(self):
+        for amount, cheech, chong in (
+            (15000, 323, 326), (25000, 324, 327), (30000, 325, 328),
+        ):
+            self.assertRegex(SKETCH, rf"TRK_VO_CHEECH_HURRY_{amount}\s+{cheech}")
+            self.assertRegex(SKETCH, rf"TRK_VO_CHONG_HURRY_{amount}\s+{chong}")
+        self.assertIn("random(0, 2) == 0 ? cheechTrack : chongTrack", SKETCH)
+        self.assertIn("PlayHurryCashoutVoice(30000UL);", SKETCH)
+        self.assertGreaterEqual(
+            SKETCH.count("wTrig.trackPlayPoly(TRK_MULTIBALL_EXPLOSION);"), 3
+        )
+        self.assertIn(
+            "PlayHurryCashoutVoice(hurryScr * Scoring::HURRY_UP_MULTIPLIER);",
+            SKETCH,
+        )
+
     def test_combo_uses_finishing_bridge_character_voice(self):
         self.assertNotIn("TRK_COMBO1", SKETCH)
         self.assertNotIn("TRK_COMBO2", SKETCH)
@@ -67,6 +83,30 @@ class GameplayAudioContractTests(unittest.TestCase):
             r"trackLoop\(TRK_MUS_SPACECOKE, 1\);\s*"
             r"wTrig\.trackPlayPoly\(TRK_MUS_SPACECOKE\);",
         )
+
+    def test_space_coke_audio_is_cued_from_ufo9_explosion_frame(self):
+        presentation = re.search(
+            r"void BeginUfoLotteryPresentation\(boolean playLegacyVideo\) \{(.*?)\n\}",
+            SKETCH,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(presentation)
+        body = presentation.group(1)
+        self.assertIn("if (lottery == 7)", body)
+        self.assertIn("wTrig.stopAllTracks();", body)
+        self.assertIn("wTrig.trackPlayPoly(TRK_HAPPYUFO);", body)
+        self.assertIn("spaceCokeAudioPending = HIGH;", body)
+        self.assertRegex(SKETCH, r"SPACECOKE_EXPLOSION_CUE_MS\s*=\s*3500UL")
+        cue = SKETCH[SKETCH.index("void UpdateSpaceCokeAudioCue() {"):]
+        for track in (
+            "TRK_FIREWORK", "TRK_MUS_SPACECOKE", "TRK_CHEECH_SPACECOKE",
+        ):
+            self.assertIn(track, cue)
+
+    def test_weed_full_adds_track_72_to_the_blast(self):
+        weed = re.search(r"void Weed\(\) \{(.*?)\n\}", SKETCH, re.DOTALL)
+        self.assertIsNotNone(weed)
+        self.assertIn("wTrig.trackPlayPoly(TRK_WEEDFULL);", weed.group(1))
 
     def test_ufo_no_weed_eject_restores_legacy_effects(self):
         self.assertRegex(SKETCH, r"#define TRK_UFO_EJECT_BALL\s+34")

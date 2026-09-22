@@ -217,6 +217,12 @@ int simForceLottery = 0; // cinkelt UFO-lotto: 7=SpaceCoke, 8=pontlopas, 9=minig
 #define TRK_VO_UFO_WHEEL_EXTRA_BALL_A 314
 #define TRK_VO_CHEECH_COMBO_A         317
 #define TRK_VO_CHONG_COMBO_A          320
+#define TRK_VO_CHEECH_HURRY_15000      323
+#define TRK_VO_CHEECH_HURRY_25000      324
+#define TRK_VO_CHEECH_HURRY_30000      325
+#define TRK_VO_CHONG_HURRY_15000       326
+#define TRK_VO_CHONG_HURRY_25000       327
+#define TRK_VO_CHONG_HURRY_30000       328
 
 // Multiball-inditasok: modonkent harom egymas utani A/B/C valtozat.
 #define TRK_VO_MULTIBALL_ACAPULCO_A   293
@@ -727,6 +733,11 @@ const unsigned long UFO_WHEEL_RESULT_VOICE_MS = 5000UL;
 // utan is tovabblepunk, hogy a golyo ne ragadjon a VUK-ban.
 const unsigned long UFO_WHEEL_TIMEOUT_MS = 12000UL;
 const unsigned long UFO_LOTTERY_HOLD_MS = 5500UL;
+// Ufo9 PNG frame 117 (~3.5 mp) az elso robbanas. A hangcsomag erre a
+// jelenetre van idozitve, nem a VUK kesobbi kidobasara.
+const unsigned long SPACECOKE_EXPLOSION_CUE_MS = 3500UL;
+boolean spaceCokeAudioPending = LOW;
+unsigned long spaceCokeAudioCueAt = 0;
 // Timers
 unsigned long ufoInactiveTimer = 0;
 unsigned long ufoshoottimer = 0;
@@ -2788,6 +2799,15 @@ void BeginUfoLotteryPresentation(boolean playLegacyVideo) {
     wTrig.trackPlayPoly(TRK_HAPPYUFO);
   }
   ApplyUfoLotteryEntryAward(playLegacyVideo);
+  if (lottery == 7) {
+    // Ufo9 indulas: minden korabbi jatekhang elhallgat, es csak a 45-os
+    // alaphang szol. A tenyleges Space Coke robbanashangok a PNG 117.
+    // framejere (~3.5 mp) vannak idozitve az UpdateSpaceCokeAudioCue()-ban.
+    wTrig.stopAllTracks();
+    wTrig.trackPlayPoly(TRK_HAPPYUFO);
+    spaceCokeAudioPending = HIGH;
+    spaceCokeAudioCueAt = millis();
+  }
   ufoshoot = 4;
   ufoshoottimer = millis();
   ufoshoottimer2 = ufoshoottimer;
@@ -3317,6 +3337,8 @@ void Loopshoot() {
         // Hurry Up alatt a loop fix 30000-et fizet (15000 duplazva), a hozza
         // tartozo sima pontozo videoval - jackpot-klip ide nem jar.
         Score(Scoring::HURRY_LOOP_POINTS, Scoring::LOOP_BONUS);
+        wTrig.trackPlayPoly(TRK_MULTIBALL_EXPLOSION);
+        PlayHurryCashoutVoice(30000UL);
         Serial.println("Point8");
         delay(20);
       }
@@ -3461,6 +3483,7 @@ void Weed() {
     if (multiball == 0) {
       PlayBakedEffectOnce(5); // Weedblast: overlaykent kell lejatszani
       wTrig.trackPlayPoly(TRK_MULTIBALL_EXPLOSION); // 0129: egyszeri blast
+      wTrig.trackPlayPoly(TRK_WEEDFULL); // 0072: Weed Full kiegeszito hang
       boolean canChoosePartyShot =
         (beerCredits[player] > 0 && jointStack[player] < 3);
       PlaySpeechRange(canChoosePartyShot
@@ -4346,6 +4369,41 @@ void weedmetersend() {
   weedMeterLastAttempt = millis() - 250UL; // az elso probalkozas rogton mehet
 }
 
+// Hurry Up cashout: az osszeghez tartozo Cheech/Chong bemondas kozul
+// valasztunk, hogy ugyanaz a bridge vagy loop ne mindig ugyanugy szoljon.
+void PlayHurryCashoutVoice(unsigned long payout) {
+  uint16_t cheechTrack = 0;
+  uint16_t chongTrack = 0;
+  if (payout == 15000UL) {
+    cheechTrack = TRK_VO_CHEECH_HURRY_15000;
+    chongTrack = TRK_VO_CHONG_HURRY_15000;
+  }
+  else if (payout == 25000UL) {
+    cheechTrack = TRK_VO_CHEECH_HURRY_25000;
+    chongTrack = TRK_VO_CHONG_HURRY_25000;
+  }
+  else if (payout == 30000UL) {
+    cheechTrack = TRK_VO_CHEECH_HURRY_30000;
+    chongTrack = TRK_VO_CHONG_HURRY_30000;
+  }
+  if (cheechTrack != 0) {
+    wTrig.trackPlayPoly(random(0, 2) == 0 ? cheechTrack : chongTrack);
+  }
+}
+
+void UpdateSpaceCokeAudioCue() {
+  if (spaceCokeAudioPending == LOW ||
+      millis() - spaceCokeAudioCueAt < SPACECOKE_EXPLOSION_CUE_MS) {
+    return;
+  }
+  spaceCokeAudioPending = LOW;
+  PlaySpeechRange(TRK_VO_UFO_SPACE_COKE_START_A);
+  wTrig.trackPlayPoly(TRK_FIREWORK);
+  wTrig.trackLoop(TRK_MUS_SPACECOKE, 1);
+  wTrig.trackPlayPoly(TRK_MUS_SPACECOKE);
+  wTrig.trackPlayPoly(TRK_CHEECH_SPACECOKE); // filmes Cheech-orditas
+}
+
 void ServiceWeedMeter() {
   if (weedMeterPending != HIGH || millis() - weedMeterLastAttempt < 250UL) return;
   weedMeterLastAttempt = millis();
@@ -4433,12 +4491,6 @@ void AwardUfoLottery() {
     // Ide korabban ID4 (UFO FUCK) jott, de az mostmar kizarolag a
     // UFO-no-weed esemenye. Egyelore nincs baked effekt -> tegyunk ide
     // masikat, ha kell (multiball-start).
-    PlaySpeechRange(TRK_VO_UFO_SPACE_COKE_START_A);
-    wTrig.trackPlayPoly(TRK_FIREWORK);
-    wTrig.trackPause(TRK_THEME);
-    wTrig.trackLoop(TRK_MUS_SPACECOKE, 1);
-    wTrig.trackPlayPoly(TRK_MUS_SPACECOKE);
-    wTrig.trackPlayPoly(TRK_CHEECH_SPACECOKE); // filmes Cheech-orditas
     ufosw = 0;
     spinnersw = 2;
     BrdgLowActive = HIGH;
@@ -4475,6 +4527,7 @@ void ResumeUfoLotteryAudio() {
 
 void UFOO() {
   unsigned long now = millis();
+  UpdateSpaceCokeAudioCue();
   if (ufoWheelWaiting) {
     UpdateUfoWheelPresentation();
     return;
@@ -5099,6 +5152,8 @@ void BridgeCommon(uint8_t swPin, boolean* swFlag, unsigned long* swT,
         // a hidankent atadott alap FELE a kiirt osszegnek - ugyanaz a "2X",
         // amit a GUI is mutat.
         Score(hurryScr, Scoring::BRIDGE_BONUS);
+        wTrig.trackPlayPoly(TRK_MULTIBALL_EXPLOSION);
+        PlayHurryCashoutVoice(hurryScr * Scoring::HURRY_UP_MULTIPLIER);
         Serial.println(hurryVideo);
         delay(20);
       }
