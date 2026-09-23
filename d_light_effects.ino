@@ -467,6 +467,10 @@ void HandleControlCmd(const char* s) {
   if (intmon == 4 && strcmp(s, "SERVICE_EXIT") == 0) {
     intmon = 1;
     numofplayers = 1;
+    serviceExitWaitStartRelease =
+        (SimDigitalRead(startButton) == LOW) ? HIGH : LOW;
+    ResetLightEffectsForAttract();
+    runLightStartLed = 0;
     heysoundtimer = millis();
     Serial.println(F("Attract"));
     return;

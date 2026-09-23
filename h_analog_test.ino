@@ -15,12 +15,12 @@
 //   AT,SAVE,<k1>,...,<kN> -> AT_SAVED          (egyetlen EEPROM-mentes;
 //                            START utan vagy egy nyugtazott STOP utan is jo)
 //                            AT_ERR,RANGE       (rossz darabszam/ertek)
-//   Ha nem attract-ban vagyunk: AT_ERR,BUSY (lasd lentebb, miert).
+//   Ha nem attract/szerviz modban vagyunk: AT_ERR,BUSY (lasd lentebb).
 //
-// BIZTONSAG: a teszt-mod CSAK attract-bol (intmon == 1) indithato. Jatek
-// kozben a tekercsek elnek, es egy szerviz-kepernyo nem szolhat bele -
-// ezert inkabb visszautasitjuk. A stream magatol leall, ha a gep kilep az
-// attractbol, vagy ha a Pi elnemul (AT_STREAM_TIMEOUT_MS).
+// BIZTONSAG: a teszt attractbol vagy a GUI szervizmenujebol indithato.
+// Jatek kozbeni szervizbelepesnel elobb megvarja a drain veget. Aktiv
+// jatekban visszautasitjuk; a stream magatol is leall modvaltaskor vagy ha
+// a Pi elnemul (AT_STREAM_TIMEOUT_MS).
 
 #include <EEPROM.h>
 
@@ -156,13 +156,20 @@ void StopAnalogTest() {
   Serial.println("AT_STOPPED");
 }
 
+boolean AnalogTestModeAllowed() {
+  // A GUI szervizmenuje intmon=4. Jatek kozbeni szervizbelepesnel elobb
+  // varjuk meg a golyok visszatereset; attractbol nyitott menuben azonnal jo.
+  return intmon == 1 || (intmon == 4 && serviceAbortActive == LOW);
+}
+
 // A loop()-bol hivjuk minden korben.
 void AnalogTestPoll() {
   if (!analogTestActive) return;
 
   // A gep kilepett az attractbol (jatek indult) vagy lejart a biztonsagi
   // ido: a stream nem maradhat vegtelenul bekapcsolva.
-  if (intmon != 1 || millis() - analogTestStarted > AT_STREAM_TIMEOUT_MS) {
+  if (!AnalogTestModeAllowed() ||
+      millis() - analogTestStarted > AT_STREAM_TIMEOUT_MS) {
     StopAnalogTest();
     return;
   }
@@ -179,7 +186,7 @@ void HandleAnalogTestCmd(const char* s) {
   const char* arg = s + 3;   // "AT," utan
 
   if (!strncmp(arg, "START", 5)) {
-    if (intmon != 1) { Serial.println("AT_ERR,BUSY"); return; }
+    if (!AnalogTestModeAllowed()) { Serial.println("AT_ERR,BUSY"); return; }
     analogTestActive = true;
     analogTestStarted = millis();
     analogTestLastSend = 0;
@@ -202,8 +209,8 @@ void HandleAnalogTestCmd(const char* s) {
   if (!strncmp(arg, "SAVE,", 5)) {
     // A GUI a biztos EEPROM-iras erdekeben elobb STOP-ot kuld, majd csak az
     // AT_STOPPED nyugtazas utan SAVE-et. Ezert a mentesnek leallitott stream
-    // mellett is ervenyesnek kell lennie; tovabbra is csak attractban engedjuk.
-    if (intmon != 1) {
+    // mellett is ervenyesnek kell lennie; attractban vagy szervizben engedjuk.
+    if (!AnalogTestModeAllowed()) {
       Serial.println("AT_ERR,BUSY");
       return;
     }

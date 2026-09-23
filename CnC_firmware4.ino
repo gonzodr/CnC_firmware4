@@ -807,6 +807,11 @@ boolean serviceRightHeld = LOW;
 boolean serviceShootHeld = LOW;
 boolean serviceStartHeld = LOW;
 const unsigned long SERVICE_COMBO_STEP_TIMEOUT_MS = 2000UL;
+unsigned long serviceLeftMenuLastAt = 0;
+unsigned long serviceRightMenuLastAt = 0;
+const unsigned long SERVICE_LEFT_DEBOUNCE_MS = 220UL;
+const unsigned long SERVICE_RIGHT_DEBOUNCE_MS = 140UL;
+boolean serviceExitWaitStartRelease = LOW;
 // Jatek kozbeni szerviz-belepes: az ot Start csak "elesiti" a kodot,
 // maga a Bal -> Shoot -> Jobb -> Start sor inditja a biztonsagos leallitast.
 uint8_t serviceGameStartCount = 0;
@@ -1964,6 +1969,82 @@ void DisableGameplayCoilsForService() {
   digitalWrite(shooterlaneCoil, LOW);
 }
 
+// A jatek kozbeni szervizbelepes GAME OVER, nem szunet. Minden olyan
+// allapotot torlunk, amely egy uj jatekba jutalmat, modot vagy kigyujtott
+// progresszt vihetne at. A szerviz/drain sajat valtozoit ez nem erinti.
+void ResetAbortedGameplayState() {
+  extraball = 0;
+  extraBallLit = LOW;
+  ballsaversw = LOW;
+  sidelaneBallsaverSw = LOW;
+  ballsavetimer = 0;
+  hurryUp = LOW;
+  hurryUpTimer = 0;
+  StopHurryUpLights();
+  StopHurryUpBakedOverlay();
+  multiball = 0;
+  BIP = 1;
+  multiloopsw = LOW;
+  highLoopArmT = 0;
+  lottery = 0;
+  ufoMinus = 0;
+  ufoAwardTier = UFO_PARTY_NONE;
+  ufoWheelWaiting = LOW;
+  ufoWheelResultVoicePlayed = LOW;
+  spaceCokeAudioPending = LOW;
+  ufosw = LOW;
+  ufoshoot = 0;
+  spinnersw = 0;
+  BrdgLowActive = LOW;
+  BrdgHighActive = LOW;
+  BrdgLowSw = LOW;
+  BrdgHighSw = LOW;
+  comboTimerH = 0;
+  comboTimerL = 0;
+  comboCounter = 0;
+
+  cncswitch1 = cncswitch2 = cncswitch3 = 0;
+  weedswitch1 = weedswitch2 = weedswitch3 = weedswitch4 = 0;
+  fishTankLightState1 = fishTankLightState2 = 0;
+  cncoff = LOW;
+  weedoff = LOW;
+  fishoff = LOW;
+  chongLightActiveSw = LOW;
+  cheechLightActiveSw = LOW;
+  CollectSw = LOW;
+  daveoff = LOW;
+  davearr[1] = davearr[2] = davearr[3] = davearr[4] = 0;
+  gatearr[1] = gatearr[2] = gatearr[3] = 0;
+  giftsw = 0;
+
+  for (uint8_t p = 0; p <= 4; p++) {
+    score[p] = 0;
+    weedm[p] = 0;
+    weedmeter[p] = 180;
+    beerCredits[p] = 0;
+    jointStack[p] = 0;
+    weedQualified[p] = LOW;
+    cncCollectionLit[p] = LOW;
+    cheechCollectives[p] = 0;
+    chongCollectives[p] = 0;
+  }
+  bonus = 0;
+  bonusx = 0;
+  bonusx1sw = bonusx2sw = bonusx3sw = bonusx4sw = LOW;
+  ballTilted = LOW;
+  Inittable = LOW;
+  shoot = LOW;
+  shootfail = 0;
+  shootfailchk = LOW;
+  kick = LOW;
+  AutoKick = LOW;
+  firstplay = HIGH;
+  ball = 1;
+  player = 1;
+  numofplayers = 1;
+  ResetLightEffectsForAttract();
+}
+
 void BeginServiceAbort() {
   const unsigned long now = millis();
   serviceGameArmed = LOW;
@@ -1978,15 +2059,7 @@ void BeginServiceAbort() {
   // Minden jatekmod azonnal megszakad; a GUI a SERVICE_MENU_ENTER-re mar
   // ebben a frame-ben menu-re valt, nem var a drainre.
   AbortMunchiesForService();
-  ufoWheelWaiting = LOW;
-  effect = LOW;
-  effectID = 0;
-  ballsaversw = LOW;
-  hurryUp = LOW;
-  multiball = LOW;
-  shoot = LOW;
-  kick = LOW;
-  AutoKick = LOW;
+  ResetAbortedGameplayState();
   wTrig.stopAllTracks();
   DisableGameplayCoilsForService();
   intmon = 4;
@@ -2088,10 +2161,17 @@ boolean PollGameplayServiceEntry() {
 }
 
 void ServiceMenuInputPoll() {
-  if (ServiceButtonPressed(leftFlipperButton, &serviceLeftHeld))
+  const unsigned long now = millis();
+  if (ServiceButtonPressed(leftFlipperButton, &serviceLeftHeld) &&
+      now - serviceLeftMenuLastAt >= SERVICE_LEFT_DEBOUNCE_MS) {
+    serviceLeftMenuLastAt = now;
     Serial.println(F("SERVICE_LEFT"));
-  if (ServiceButtonPressed(rightflipperButton, &serviceRightHeld))
+  }
+  if (ServiceButtonPressed(rightflipperButton, &serviceRightHeld) &&
+      now - serviceRightMenuLastAt >= SERVICE_RIGHT_DEBOUNCE_MS) {
+    serviceRightMenuLastAt = now;
     Serial.println(F("SERVICE_RIGHT"));
+  }
   if (ServiceButtonPressed(startButton, &serviceStartHeld))
     Serial.println(F("SERVICE_CONFIRM"));
   if (ServiceButtonPressed(ballShooterButton, &serviceShootHeld))
@@ -2105,9 +2185,26 @@ void intmMode() {
     return;
   }
   if (intmon == 1) {
+    // Ha a GUI hamarabb lep ki a menubol, mint hogy minden golyo visszaert,
+    // a biztonsagos visszatoltest attract alatt is fejezzuk be. Addig uj
+    // jatek nem indulhat, de a GUI mar nyugodtan mutathatja az attractot.
+    if (serviceAbortActive == HIGH) {
+      ServiceAbortUpdate();
+      return;
+    }
     if (PollAttractServiceCombo()) return;
     runLightStartLed = 0;
     ChangePalettePeriodically();
+
+    // A szervizbol a piros Starttal lepunk ki. Varjuk meg ugyanennek a
+    // nyomasnak a felengedeset, kulonben az attract kovetkezo frame-je mar
+    // uj Startkent latna, es rogton player selectbe ugrana.
+    if (serviceExitWaitStartRelease == HIGH) {
+      if (SimDigitalRead(startButton) == HIGH) {
+        serviceExitWaitStartRelease = LOW;
+      }
+      return;
+    }
       
       /*
       miv1 = SimAnalogRead(a1);
@@ -2895,7 +2992,9 @@ void UpdateUfoWheelPresentation() {
 }
 
 boolean CollectExtraBallLitAtHighRamp() {
-  if (extraBallLit == LOW || extraball > 0 ||
+  // Hurry Up alatt a nagyhid kizarolag a 25000-es cashout. Az Extra Ball
+  // Lit nem vesz el: a mod vege utan ugyanazon a golyon ujra gyujtheto.
+  if (hurryUp == HIGH || extraBallLit == LOW || extraball > 0 ||
       SimDigitalRead(bridgeHighSwitch) != LOW || BrdgHighSw != 0) {
     return false;
   }
@@ -5333,7 +5432,7 @@ void BridgeHigh() {
                Scoring::HURRY_BRIDGE_HIGH_POINTS, "Point7");  // 25000
   // A lottery altal kigyujtott Extra Ball sajat, tartos high-ramp jelzest
   // kap a collectig; a 36-os baked effekt csak a kigyujtas pillanata.
-  if (extraBallLit == HIGH && effect == LOW) {
+  if (extraBallLit == HIGH && hurryUp == LOW && effect == LOW) {
     const boolean beat = ((millis() / 240UL) & 1U) == 0;
     leds[36] = beat ? CRGB(255, 35, 150) : CRGB(255, 180, 35);
     leds[37] = beat ? CRGB(255, 180, 35) : CRGB(255, 35, 150);

@@ -71,6 +71,16 @@ class GameplayFieldFixes(unittest.TestCase):
         self.assertIsNotNone(weed)
         self.assertIn("wTrig.trackPlayPoly(TRK_MULTIBALL_EXPLOSION);", weed.group(1))
 
+    def test_extra_ball_lit_is_suspended_during_hurry_up(self):
+        self.assertRegex(
+            SKETCH,
+            r"boolean CollectExtraBallLitAtHighRamp\(\) \{\s*"
+            r"(?:.*\n){0,4}\s*if \(hurryUp == HIGH",
+        )
+        self.assertIn(
+            "extraBallLit == HIGH && hurryUp == LOW && effect == LOW", SKETCH
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
