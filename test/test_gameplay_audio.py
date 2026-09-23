@@ -66,6 +66,19 @@ class GameplayAudioContractTests(unittest.TestCase):
             SKETCH,
         )
 
+    def test_ufo_point_steal_uses_a_dedicated_voice_for_each_victim(self):
+        for player, track in enumerate(range(124, 128), start=1):
+            self.assertRegex(
+                SKETCH, rf"TRK_UFO_MINUS_PLAYER{player}\s+{track}"
+            )
+        self.assertIn("static const uint16_t tracks[4]", SKETCH)
+        self.assertIn("wTrig.trackPlayPoly(tracks[victim - 1]);", SKETCH)
+        presentation_start = SKETCH.index("void BeginUfoLotteryPresentation")
+        award_start = SKETCH.index("void AwardUfoLottery")
+        voice_at = SKETCH.index("PlayUfoMinusVoice(ufoMinus);")
+        self.assertGreater(voice_at, presentation_start)
+        self.assertLess(voice_at, award_start)
+
     def test_combo_uses_finishing_bridge_character_voice(self):
         self.assertNotIn("TRK_COMBO1", SKETCH)
         self.assertNotIn("TRK_COMBO2", SKETCH)

@@ -183,6 +183,10 @@ int simForceLottery = 0; // cinkelt UFO-lotto: 7=SpaceCoke, 8=pontlopas, 9=minig
 #define TRK_COCKROACH          121
 #define TRK_PIPEWRENCH         122
 #define TRK_COLLECT            123
+#define TRK_UFO_MINUS_PLAYER1  124  // 0124_fx_ufoMinuspl1.wav
+#define TRK_UFO_MINUS_PLAYER2  125  // 0125_fx_ufoMinuspl2.wav
+#define TRK_UFO_MINUS_PLAYER3  126  // 0126_fx_ufoMinuspl3.wav
+#define TRK_UFO_MINUS_PLAYER4  127  // 0127_fx_ufoMinuspl4.wav
 #define TRK_UFO_WHEEL_BG       128
 #define TRK_MULTIBALL_EXPLOSION 129
 
@@ -2799,6 +2803,11 @@ void BeginUfoLotteryPresentation(boolean playLegacyVideo) {
     wTrig.trackPlayPoly(TRK_HAPPYUFO);
   }
   ApplyUfoLotteryEntryAward(playLegacyVideo);
+  if (lottery == 8) {
+    // Ufo10..13 animacio mar az ApplyUfoLotteryEntryAward()-ban elindult;
+    // a kirabolt jatekos sajat reakcioja ezzel egy idoben induljon.
+    PlayUfoMinusVoice(ufoMinus);
+  }
   if (lottery == 7) {
     // Ufo9 indulas: minden korabbi jatekhang elhallgat, es csak a 45-os
     // alaphang szol. A tenyleges Space Coke robbanashangok a PNG 117.
@@ -4391,6 +4400,19 @@ void PlayHurryCashoutVoice(unsigned long payout) {
   }
 }
 
+// A pontlevonas celjatekosahoz kotott, kulon UFO-reakcio. Ne a regebbi
+// TRK_COLLECT + index matekra bizzuk: igy a negy, SD-n levo ufoMinuspl
+// fajlhoz egyertelmu es a jatekos-sorrendtol fuggetlen bekotes tartozik.
+void PlayUfoMinusVoice(uint8_t victim) {
+  static const uint16_t tracks[4] = {
+    TRK_UFO_MINUS_PLAYER1, TRK_UFO_MINUS_PLAYER2,
+    TRK_UFO_MINUS_PLAYER3, TRK_UFO_MINUS_PLAYER4
+  };
+  if (victim >= 1 && victim <= 4) {
+    wTrig.trackPlayPoly(tracks[victim - 1]);
+  }
+}
+
 void UpdateSpaceCokeAudioCue() {
   if (spaceCokeAudioPending == LOW ||
       millis() - spaceCokeAudioCueAt < SPACECOKE_EXPLOSION_CUE_MS) {
@@ -4498,7 +4520,6 @@ void AwardUfoLottery() {
   }
   if (lottery  == 8) {    /// Pontlopas (Ufo10..13)
     wTrig.trackPlayPoly(TRK_FIREWORK); // Firework
-    wTrig.trackPlayPoly(TRK_COLLECT + ufoMinus); // 124..127 = kirabolt jatekos hangja
     PlayBakedEffectOnce(17);
     ufoMinus = 0;
   }
