@@ -48,6 +48,7 @@ unsigned long munchiesEjectAt = 0;
 unsigned long munchiesLightAt = 0;
 unsigned long munchiesPausedAt = 0;
 boolean munchiesWaitForUfoClear = false;
+uint8_t munchiesStartContext = MUNCHIES_FROM_VUK;
 
 const unsigned long MG_READY_TIMEOUT_MS = 3000UL;
 const unsigned long MG_LINK_TIMEOUT_MS = 5000UL;
@@ -66,6 +67,7 @@ void AbortMunchiesForService() {
   munchiesMode = MG_IDLE;
   munchiesLight = MG_LIGHT_IDLE;
   munchiesWaitForUfoClear = false;
+  munchiesStartContext = MUNCHIES_FROM_VUK;
   digitalWrite(ufoCoil, LOW);
 }
 
@@ -107,9 +109,11 @@ void StartMunchiesLight(uint8_t state) {
   munchiesLightAt = millis();
 }
 
-void StartMunchiesMode() {
+void StartMunchiesMode(uint8_t context) {
   if (munchiesMode != MG_IDLE) return;
+  if (context > MUNCHIES_STANDALONE_CHALLENGE) context = MUNCHIES_FROM_VUK;
 
+  munchiesStartContext = context;
   munchiesSession++;
   if (munchiesSession == 0) munchiesSession = 1; // 0 a legacy/nincs-session
   munchiesMode = MG_WAIT_READY;
@@ -134,6 +138,19 @@ void StartMunchiesMode() {
 
 void BeginMunchiesEject() {
   if (munchiesMode == MG_EJECTING || munchiesMode == MG_IDLE) return;
+
+  // Standalone challenge-ben nincs golyo az UFO-ban: a kozos minigame-et
+  // lezárjuk, de sem VUK-tekercset, sem normal jatek Ball Save-ot nem inditunk.
+  // A challenge eredmeny/player sequencing a kesobbi koordinator feladata.
+  if (munchiesStartContext == MUNCHIES_STANDALONE_CHALLENGE) {
+    munchiesMode = MG_IDLE;
+    munchiesLight = MG_LIGHT_IDLE;
+    munchiesWaitForUfoClear = false;
+    digitalWrite(leftFlipperBat, LOW);
+    digitalWrite(rightFlipperBat, LOW);
+    digitalWrite(ufoCoil, LOW);
+    return;
+  }
 
   unsigned long now = millis();
   // A minijatek ne egye meg a meg aktiv ballsave idejet.
@@ -301,6 +318,7 @@ void MunchiesUpdate() {
       digitalWrite(ufoCoil, LOW);
       munchiesMode = MG_IDLE;
       munchiesLight = MG_LIGHT_IDLE;
+      munchiesStartContext = MUNCHIES_FROM_VUK;
       ufoshoot = 0;
       ufosw = 0;
       ufoInactivesw = 1;

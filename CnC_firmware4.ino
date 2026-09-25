@@ -671,6 +671,16 @@ enum GameMode : uint8_t {
 };
 
 GameMode selectedGameMode = GAME_STANDARD;
+
+enum WeedMultiballStartContext : uint8_t {
+  WEED_MB_FROM_QUALIFICATION = 0,
+  WEED_MB_FROM_CHALLENGE
+};
+
+enum MunchiesStartContext : uint8_t {
+  MUNCHIES_FROM_VUK = 0,
+  MUNCHIES_STANDALONE_CHALLENGE
+};
 // Timers
 unsigned long shoottimer = 0;
 unsigned long shoottimer2 = 0;
@@ -2801,7 +2811,7 @@ void RollJoint() {
   SendPartyState();
 }
 
-int DrawUfoLottery(uint8_t tier) {
+int DrawStandardUfoLottery(uint8_t tier) {
   int result = 3;
 
   if (tier == UFO_PARTY_LOVE_PACK) {
@@ -2852,6 +2862,14 @@ int DrawUfoLottery(uint8_t tier) {
   }
 #endif
   return result;
+}
+
+int DrawUfoRewardForMode(uint8_t tier) {
+  // A reward kivalasztasa mar kulon policy-pont, a prezentacio es a jutalom
+  // vegrehajtasa tovabbra is a kozos UFO state machine-ben marad. Amig egy
+  // uj ruleset nincs aktivalva, minden mod a bizonyitott Standard tablat
+  // hasznalja; az ismeretlen ertek is biztonsagosan ide esik vissza.
+  return DrawStandardUfoLottery(tier);
 }
 
 const char* UfoWheelResultName() {
@@ -3007,7 +3025,7 @@ void CompleteUfoWheelPresentation() {
   if (lottery == 9 && hurryUp == LOW) {
     ufoshoot = 0;
     SendPartyEvent("WHEEL_MUNCHIES");
-    StartMunchiesMode();
+    StartMunchiesMode(MUNCHIES_FROM_VUK);
     return;
   }
 
@@ -3558,6 +3576,38 @@ void Loopshoot() {
 /////////////////////////////////////////////////
 /////////////////////////////////////////////////
 
+void OnWeedCompleted() {
+  // Mode-policy belepesi pont. A selector aktivalasaig kizarolag a jelenlegi
+  // Standard viselkedest hajtja vegre; a Quick kesobb itt valaszthat mas
+  // rewardot anelkul, hogy a negy fizikai target kezeleset lemasolnank.
+  weedtimer = millis();
+  weedoff = 1;
+  weedQualified[ProgressOwner()] = HIGH;
+  // A prezentacio CSAK multiballon kivul megy. Multiball alatt a negy
+  // celpont par masodpercenkent ujra osszejon, es az effekt/bemondas/video
+  // ismetlese idegesito - a bemondas ott ertelmetlen is, mert jointot
+  // multiball alatt ugysem lehet sodorni (lasd RollJointLit).
+  if (multiball == 0) {
+    PlayBakedEffectOnce(5); // Weedblast: overlaykent kell lejatszani
+    wTrig.trackPlayPoly(TRK_MULTIBALL_EXPLOSION); // 0129: egyszeri blast
+    wTrig.trackPlayPoly(TRK_WEEDFULL); // 0072: Weed Full kiegeszito hang
+    const uint8_t owner = ProgressOwner();
+    boolean canChoosePartyShot =
+      (beerCredits[owner] > 0 && jointStack[owner] < 3);
+    PlaySpeechRange(canChoosePartyShot
+                      ? TRK_VO_UFO_WEED_CHOOSE_A
+                      : TRK_VO_UFO_WEED_NEED_BEER_A);
+    Serial.println("Weed");
+    if (hurryUp == LOW) {
+      ufosw = 1;
+      spinnersw = 1;
+    }
+    SendPartyEvent(canChoosePartyShot ? "CHOOSE" : "NEED_BEER");
+  }
+  SendPartyState();
+  delay(10);
+}
+
 void Weed() {
   static const uint8_t weedPin[4]   = { 11, 10, 9, 8 }; // d11, d10, d9, d8
   static const uint8_t weedSound[4] = { 5, 39, 40, 41 };
@@ -3635,31 +3685,7 @@ void Weed() {
   // WEED kigyujtve -> UFO + multiball-mero elesites es hang. Szandekosan
   // NEM ad ball save-et; azt csak az UFO/VUK kidobas es a multiball indokolja.
   if (*wsw[0] == 1 && *wsw[1] == 1 && *wsw[2] == 1 && *wsw[3] == 1 && weedoff == 0) {
-    weedtimer = millis();
-    weedoff = 1;
-    weedQualified[player] = HIGH;
-    // A prezentacio CSAK multiballon kivul megy. Multiball alatt a negy
-    // celpont par masodpercenkent ujra osszejon, es az effekt/bemondas/video
-    // ismetlese idegesito - a bemondas ott ertelmetlen is, mert jointot
-    // multiball alatt ugysem lehet sodorni (lasd RollJointLit).
-    if (multiball == 0) {
-      PlayBakedEffectOnce(5); // Weedblast: overlaykent kell lejatszani
-      wTrig.trackPlayPoly(TRK_MULTIBALL_EXPLOSION); // 0129: egyszeri blast
-      wTrig.trackPlayPoly(TRK_WEEDFULL); // 0072: Weed Full kiegeszito hang
-      boolean canChoosePartyShot =
-        (beerCredits[player] > 0 && jointStack[player] < 3);
-      PlaySpeechRange(canChoosePartyShot
-                        ? TRK_VO_UFO_WEED_CHOOSE_A
-                        : TRK_VO_UFO_WEED_NEED_BEER_A);
-      Serial.println("Weed");
-      if (hurryUp == LOW) {
-        ufosw = 1;
-        spinnersw = 1;
-      }
-      SendPartyEvent(canChoosePartyShot ? "CHOOSE" : "NEED_BEER");
-    }
-    SendPartyState();
-    delay(10);
+    OnWeedCompleted();
   }
 
   if (weedoff == 1) {
@@ -4369,6 +4395,50 @@ void BonusXLed() {
 /////////////////////////////////////////////////
 /////////////////////////////////////////////////
 
+boolean StartWeedMultiball(uint8_t level, uint8_t context) {
+  if (level > 3 || context > WEED_MB_FROM_CHALLENGE) return false;
+  const uint8_t lvl = level;
+  static const unsigned long  mbScr[4]   = { 10000, 20000, 30000, 40000 };
+  static const unsigned long  mbBns[4]   = {   500,  1000,  1500,  2000 };
+  static const uint8_t        mbLoop[4]  = {
+    TRK_MUS_STRAWBERRY2, TRK_MUS_ROCKFIGHT,
+    TRK_MUS_THAI_STICK, TRK_MUS_LABRADOR
+  };
+  static const uint16_t       mbVoice[4] = {
+    TRK_VO_MULTIBALL_ACAPULCO_A,
+    TRK_VO_MULTIBALL_MICHOACAN_A,
+    TRK_VO_MULTIBALL_THAISTICK_A,
+    TRK_VO_MULTIBALL_LABRADOR_A
+  };
+  static const uint8_t mbLightEffect[4] = { 40, 20, 20, 41 };
+
+  if (context == WEED_MB_FROM_QUALIFICATION) {
+    const uint8_t owner = ProgressOwner();
+    weedmeter[owner] = 180;
+    weedm[owner] = lvl + 1;
+    Score(mbScr[lvl], mbBns[lvl]);
+  }
+
+  BIP = lvl + 2;
+  Serial.print("Multiball");
+  Serial.println(lvl + 1); // Multiball1..Multiball4
+  delay(20);
+  multiball = lvl + 1;
+  StartMultiballBallSave();
+  ufosw = 0;
+  PlayBakedEffectOnce(mbLightEffect[lvl]);
+  wTrig.trackPause(TRK_THEME);
+  wTrig.trackLoop(mbLoop[lvl], 1);
+  wTrig.trackPlayPoly(mbLoop[lvl]);
+  wTrig.trackPlayPoly(TRK_MULTIBALL_EXPLOSION);
+  PlaySpeechRange(mbVoice[lvl]);
+  spinnersw = 2;
+  multiloopsw = 1;
+  BrdgLowActive = HIGH;
+  BrdgHighActive = HIGH;
+  return true;
+}
+
 void Weedspinner() {
   if (weedspsw == 0 && SimDigitalRead(spinnerSwitch) == LOW) {
     weedspsw = 1;
@@ -4398,49 +4468,13 @@ void Weedspinner() {
 
       // A 4 multiball-szint (weedm 0->1->2->3->4) kozos logikaja. Szintenkent
       // csak a mero-levonas, a pontszam es a hangok kulonboznek -> tablak.
-      int lvl = weedm[player];
+      const uint8_t owner = ProgressOwner();
+      int lvl = weedm[owner];
       if (lvl >= 0 && lvl <= 3) {
         static const int8_t         mbDecr[4]  = { 25, 15, 10, 8 };
-        static const unsigned long  mbScr[4]   = { 10000, 20000, 30000, 40000 };
-        static const unsigned long  mbBns[4]   = {   500,  1000,  1500,  2000 };
-        static const uint8_t        mbLoop[4]  = {
-          TRK_MUS_STRAWBERRY2, TRK_MUS_ROCKFIGHT,
-          TRK_MUS_THAI_STICK, TRK_MUS_LABRADOR
-        }; // loopolt zene
-        static const uint16_t       mbVoice[4] = {
-          TRK_VO_MULTIBALL_ACAPULCO_A,
-          TRK_VO_MULTIBALL_MICHOACAN_A,
-          TRK_VO_MULTIBALL_THAISTICK_A,
-          TRK_VO_MULTIBALL_LABRADOR_A
-        };
-
-        weedmeter[player] = weedmeter[player] - mbDecr[lvl];
-        if (weedmeter[player] <= 0) {
-          weedmeter[player] = 180;
-          weedm[player] = lvl + 1;
-          BIP = lvl + 2;
-          Score(mbScr[lvl], mbBns[lvl]);
-          Serial.print("Multiball");
-          Serial.println(lvl + 1); // Multiball1..Multiball4
-          delay(20);
-          multiball = lvl + 1;
-          StartMultiballBallSave();
-          ufosw = 0;
-          // Szintsorrend: Acapulco (2 golyo), Michoakan (3), Thai Stick (4),
-          // Labrador (5). Michoakan es Thai ugyanazt a zold show-t hasznalja.
-          static const uint8_t mbLightEffect[4] = { 40, 20, 20, 41 };
-          PlayBakedEffectOnce(mbLightEffect[lvl]);
-          wTrig.trackPause(TRK_THEME);
-          wTrig.trackLoop(mbLoop[lvl], 1);
-          // A LOOP_ON csak a track tulajdonsagat allitja; a PLAY_POLY inditja
-          // el tenylegesen a multiball zenet.
-          wTrig.trackPlayPoly(mbLoop[lvl]);
-          wTrig.trackPlayPoly(TRK_MULTIBALL_EXPLOSION);
-          PlaySpeechRange(mbVoice[lvl]);
-          spinnersw = 2;
-          multiloopsw = 1;
-          BrdgLowActive = HIGH;
-          BrdgHighActive = HIGH;
+        weedmeter[owner] = weedmeter[owner] - mbDecr[lvl];
+        if (weedmeter[owner] <= 0) {
+          StartWeedMultiball((uint8_t)lvl, WEED_MB_FROM_QUALIFICATION);
         }
       }
 
@@ -4741,7 +4775,7 @@ void UFOO() {
       // kovetkezetesen elfogy: sima WEED cashout, 1 joint Super Cashout,
       // 2 joint Feature Wheel, 3 joint/Love Pack SpaceCoke.
       ufoAwardTier = CurrentUfoPartyTier();
-      lottery = DrawUfoLottery(ufoAwardTier);
+      lottery = DrawUfoRewardForMode(ufoAwardTier);
       ConsumeUfoPartyReward(ufoAwardTier);
       if (ufoAwardTier == UFO_PARTY_CASHOUT) SendPartyEvent("CASHOUT");
       if (ufoAwardTier == UFO_PARTY_SUPER_CASHOUT) SendPartyEvent("SUPER_CASHOUT");
@@ -4752,7 +4786,7 @@ void UFOO() {
         return;
       }
       if (lottery == 9 && hurryUp == LOW) {
-        StartMunchiesMode();
+        StartMunchiesMode(MUNCHIES_FROM_VUK);
         return;
       }
       BeginUfoLotteryPresentation(HIGH);

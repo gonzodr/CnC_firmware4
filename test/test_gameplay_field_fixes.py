@@ -67,7 +67,9 @@ class GameplayFieldFixes(unittest.TestCase):
                              rf"else \{{\s*PlaySpeech\({voice}, \d+\);")
 
     def test_weed_completion_has_blast_audio(self):
-        weed = re.search(r"void Weed\(\) \{(.*?)\n\}", SKETCH, re.DOTALL)
+        weed = re.search(
+            r"void OnWeedCompleted\(\) \{(.*?)\n\}", SKETCH, re.DOTALL
+        )
         self.assertIsNotNone(weed)
         self.assertIn("wTrig.trackPlayPoly(TRK_MULTIBALL_EXPLOSION);", weed.group(1))
 

@@ -117,7 +117,9 @@ class GameplayAudioContractTests(unittest.TestCase):
             self.assertIn(track, cue)
 
     def test_weed_full_adds_track_72_to_the_blast(self):
-        weed = re.search(r"void Weed\(\) \{(.*?)\n\}", SKETCH, re.DOTALL)
+        weed = re.search(
+            r"void OnWeedCompleted\(\) \{(.*?)\n\}", SKETCH, re.DOTALL
+        )
         self.assertIsNotNone(weed)
         self.assertIn("wTrig.trackPlayPoly(TRK_WEEDFULL);", weed.group(1))
 
