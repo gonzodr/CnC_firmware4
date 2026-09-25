@@ -635,7 +635,9 @@ int ball2 = 0;
 int ball3 = 0;
 int ball4 = 0;
 int ball5 = 0;
-int ballsavetime = 15000;
+const uint32_t NORMAL_BALL_SAVE_MS_STANDARD = 15000UL;
+const uint32_t MULTIBALL_BALL_SAVE_MS = 30000UL;
+uint32_t ballsavetime = NORMAL_BALL_SAVE_MS_STANDARD;
 int extraball = 0;
 boolean extraBallLit = LOW;
 // A szenzoronkenti kuszobok a h_analog_test.ino-ban elnek (EEPROM-bol
@@ -655,6 +657,20 @@ int BIP;
 int player = 1;       // Player
 int ball = 1;         // Actual Ball number
 int numofplayers = 1; // Number of players
+
+// A selector es a ruleset-policy kozos, tipusos alapja. Ebben a
+// merfoldkoben meg csak a Standard aktiv; a tobbi ertek kesobbi lepesben
+// kap sajat viselkedest. Az explicit uint8_t alap tipus tartja minimalisan
+// az AVR SRAM-igenyt es a soros protokoll meretet.
+enum GameMode : uint8_t {
+  GAME_STANDARD = 0,
+  GAME_COOP,
+  GAME_QUICK,
+  GAME_MUNCHIES,
+  GAME_MULTIBALL_MAYHEM
+};
+
+GameMode selectedGameMode = GAME_STANDARD;
 // Timers
 unsigned long shoottimer = 0;
 unsigned long shoottimer2 = 0;
@@ -1461,9 +1477,7 @@ void Ballhandler() {
       // Ha a golyo a gyenge rugas utan rajta marad a kapcsolon, innen
       // szamitva kapjon egy teljes masodpercet az ujrarugasig.
       shooterLaneClosedAt = shooterNow;
-      ballsavetimer = millis(); // a ballsave BEALLITASANAK ideje (rollover-biztos)
-      ballsaversw = HIGH;
-      ballsavetime = 15000;
+      StartNormalBallSave();
     }
     else if (AutoKick == HIGH &&
              shooterNow - shooterLaneClosedAt >= SHOOTER_LANE_REKICK_MS &&
@@ -1593,7 +1607,7 @@ void Ballsave() {
   // kanonikus, rollover-biztos forma: eltelt-e mar a ballsave-ido?
   // A '!= 0' ort azert kell, hogy a be-nem-allitott (0) timer inaktivnak
   // szamitson - pont ugy, ahogy a regi '+30000'-es forma is tette.
-  if (ballsaversw == HIGH && ballsavetimer != 0 && millis() - ballsavetimer < (unsigned long)ballsavetime) {
+  if (ballsaversw == HIGH && ballsavetimer != 0 && millis() - ballsavetimer < ballsavetime) {
     Blinktimer();
     if (ledState == LOW) {
       leds[LED_BALLSAVE] = CRGB::Black; // x4
@@ -2241,6 +2255,7 @@ void intmMode() {
       Serial.println("Start"); // GUI: kilep az attractbol a SCORE kepernyore
       delay(20);
       numofplayers = 1;
+      selectedGameMode = GAME_STANDARD;
       selArmSw = LOW;          // az inditashoz elobb el kell engedni a startot
       selShootSw = HIGH;       // a shoot gombot is elesiteni kell
       selShootTimer = millis();
@@ -2568,14 +2583,15 @@ void PlayJackpotFeedback(unsigned long basePoints, uint8_t lightEffectId) {
 
 void AddAwardedScore(unsigned long scr, unsigned long bns) {
   // Mar vegleges pontosszeg: itt sem szorzot, sem jackpot-emelest nem adunk.
+  const uint8_t owner = ScoreOwner();
   bonus = bonus + bns;
-  score[player] = score[player] + scr;
+  score[owner] = score[owner] + scr;
 #ifdef SIM_MODE
   // Tesztpadi trace: minden pontozas lathato a sorosonn (choke-point,
   // ezen fut at az osszes alrendszer). Eles buildben nincs itt semmi.
   char tb[52];
   snprintf(tb, sizeof(tb), "T,score,p%d,scr=%lu,bns=%lu,tot=%lu",
-           player, scr, bns, score[player]);
+           player, scr, bns, score[owner]);
   Serial.println(tb);
 #endif
 }
@@ -2589,19 +2605,49 @@ void ScoreJackpot(unsigned long scr, unsigned long bns) {
   AddAwardedScore(JackpotScorePoints(scr), bns);
 }
 
+uint8_t ScoreOwner() {
+  // A CO-OP kesobb a kozos 0. slotot fogja visszaadni. Standardban ez
+  // szandekosan pontosan a korabbi score[player] viselkedes.
+  return (uint8_t)player;
+}
+
+uint8_t ProgressOwner() {
+  // Kulon helper marad, mert a score es a progression tulajdonosa challenge
+  // modokban kesobb elterhet. Egyelore nincs viselkedesvaltozas.
+  return (uint8_t)player;
+}
+
+void StartBallSave(uint32_t durationMs) {
+  ballsavetimer = millis(); // rollover-biztos kezdoido
+  ballsaversw = HIGH;
+  ballsavetime = durationMs;
+}
+
+uint32_t NormalBallSaveDurationMs() {
+  // A kovetkezo lepesben ez lesz a mode-policy belepesi pontja.
+  return NORMAL_BALL_SAVE_MS_STANDARD;
+}
+
+void StartNormalBallSave() {
+  StartBallSave(NormalBallSaveDurationMs());
+}
+
+void StartMultiballBallSave() {
+  // A multiball vedelme szandekosan nem a normal mode-profile resze.
+  StartBallSave(MULTIBALL_BALL_SAVE_MS);
+}
+
 // Legalabb minimumMs vedelmet biztosit, de egy mar futo hosszabb save-et
 // (peldaul kilovesi vagy multiball save-et) sosem rovidit le.
-void EnsureBallSave(unsigned long minimumMs) {
-  unsigned long now = millis();
-  unsigned long remaining = 0;
+void EnsureBallSave(uint32_t minimumMs) {
+  uint32_t now = millis();
+  uint32_t remaining = 0;
   if (ballsaversw == HIGH && ballsavetimer != 0 &&
-      now - ballsavetimer < (unsigned long)ballsavetime) {
-    remaining = (unsigned long)ballsavetime - (now - ballsavetimer);
+      now - ballsavetimer < ballsavetime) {
+    remaining = ballsavetime - (now - ballsavetimer);
   }
   if (remaining < minimumMs) {
-    ballsaversw = HIGH;
-    ballsavetime = (int)minimumMs;
-    ballsavetimer = now;
+    StartBallSave(minimumMs);
   }
 }
 
@@ -2620,6 +2666,14 @@ void StartUfoEjectBallSave(unsigned long minimumMs) {
 
 boolean ExtraBallLotteryBlocked() {
   return (extraball > 0 || extraBallLit == HIGH);
+}
+
+boolean TryAwardExtraBall() {
+  // Standardban a korabbi, nem stackelo viselkedest tartja meg. A kesobbi
+  // CO-OP egyszeri team-limitet egyedul ezen a kapun kell majd ervenyesiteni.
+  if (extraball > 0) return false;
+  extraball = 1;
+  return true;
 }
 
 uint8_t CurrentUfoPartyTier() {
@@ -2831,7 +2885,7 @@ void SendUfoWheelStart() {
 
 void ApplyUfoLotteryEntryAward(boolean playLegacyVideo) {
   if (lottery == 1) {
-    extraball = 1; // nem stackelunk egynel tobbet
+    TryAwardExtraBall(); // nem stackelunk egynel tobbet
     // Az azonnali Extra Ball CSAK a ketjointos Feature Wheelbol johet, annak
     // pedig sajat eredmenyklipje van (UfoWheel_ExtraBall), amit a GUI a kerek
     // utan lancol. A regi "Ufo5" legacy trigger ezert kikerult.
@@ -2999,7 +3053,7 @@ boolean CollectExtraBallLitAtHighRamp() {
     return false;
   }
   extraBallLit = LOW;
-  extraball = 1;
+  if (!TryAwardExtraBall()) return false;
   PlaySpeechRange(TRK_VO_CHONG_EXTRA_BALL_A);
   PlayBakedEffectOnce(37); // High Ramp Extra Ball Collect
   Serial.println("ExtraB");
@@ -4370,9 +4424,7 @@ void Weedspinner() {
           Serial.println(lvl + 1); // Multiball1..Multiball4
           delay(20);
           multiball = lvl + 1;
-          ballsavetimer = millis(); // a ballsave BEALLITASANAK ideje (rollover-biztos)
-          ballsaversw = HIGH;
-          ballsavetime = 30000;
+          StartMultiballBallSave();
           ufosw = 0;
           // Szintsorrend: Acapulco (2 golyo), Michoakan (3), Thai Stick (4),
           // Labrador (5). Michoakan es Thai ugyanazt a zold show-t hasznalja.
