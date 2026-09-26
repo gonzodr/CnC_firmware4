@@ -671,6 +671,8 @@ enum GameMode : uint8_t {
 };
 
 GameMode selectedGameMode = GAME_STANDARD;
+const uint8_t GAME_MODE_COUNT = 5;
+const uint8_t GAME_MODE_MASK_ALL = (1U << GAME_MODE_COUNT) - 1U;
 
 enum WeedMultiballStartContext : uint8_t {
   WEED_MB_FROM_QUALIFICATION = 0,
@@ -938,8 +940,14 @@ unsigned long hurryHitAt[HURRY_ZONE_COUNT] = { 0 };
 // Player select mod (intmon == 3)
 boolean selArmSw = LOW;
 boolean selShootSw = LOW;
+boolean selLeftSw = LOW;
+boolean selRightSw = LOW;
 unsigned long selShootTimer = 0;
 unsigned long selTimeoutTimer = 0;
+unsigned long selLeftTimer = 0;
+unsigned long selRightTimer = 0;
+unsigned long selModeLastSendAt = 0;
+const unsigned long GAME_MODE_SNAPSHOT_MS = 500UL;
 boolean weedhurryswitch1 = 0;
 boolean weedhurryswitch2 = 0;
 boolean weedhurryswitch3 = 0;
@@ -2202,6 +2210,54 @@ void ServiceMenuInputPoll() {
     Serial.println(F("SERVICE_BACK"));
 }
 
+uint8_t AvailableGameModeMask(uint8_t playerCount) {
+  uint8_t mask = GAME_MODE_MASK_ALL;
+  if (playerCount < 2) mask &= ~(1U << GAME_COOP);
+  return mask;
+}
+
+boolean IsGameModeAvailable(uint8_t mode, uint8_t playerCount) {
+  if (mode >= GAME_MODE_COUNT) return false;
+  return (AvailableGameModeMask(playerCount) & (1U << mode)) != 0;
+}
+
+void NormalizeSelectedGameMode() {
+  if (!IsGameModeAvailable((uint8_t)selectedGameMode, (uint8_t)numofplayers)) {
+    selectedGameMode = GAME_STANDARD;
+  }
+}
+
+void StepSelectedGameMode(int8_t direction) {
+  int8_t candidate = (int8_t)selectedGameMode;
+  for (uint8_t attempts = 0; attempts < GAME_MODE_COUNT; attempts++) {
+    candidate += direction;
+    if (candidate < 0) candidate = GAME_MODE_COUNT - 1;
+    if (candidate >= GAME_MODE_COUNT) candidate = 0;
+    if (IsGameModeAvailable((uint8_t)candidate, (uint8_t)numofplayers)) {
+      selectedGameMode = (GameMode)candidate;
+      return;
+    }
+  }
+  selectedGameMode = GAME_STANDARD;
+}
+
+void SendGameModeState() {
+  NormalizeSelectedGameMode();
+  Serial.print(F("GAME_MODE,"));
+  Serial.print((uint8_t)selectedGameMode);
+  Serial.print(',');
+  Serial.println(AvailableGameModeMask((uint8_t)numofplayers));
+  selModeLastSendAt = millis();
+}
+
+void SendGameStart() {
+  NormalizeSelectedGameMode();
+  Serial.print(F("GAME_START,"));
+  Serial.print((uint8_t)selectedGameMode);
+  Serial.print(',');
+  Serial.println(numofplayers);
+}
+
 void intmMode() {
   if (intmon == 4) {
     ServiceAbortUpdate();
@@ -2268,16 +2324,24 @@ void intmMode() {
       selectedGameMode = GAME_STANDARD;
       selArmSw = LOW;          // az inditashoz elobb el kell engedni a startot
       selShootSw = HIGH;       // a shoot gombot is elesiteni kell
+      selLeftSw = (SimDigitalRead(leftFlipperButton) == LOW) ? HIGH : LOW;
+      selRightSw = (SimDigitalRead(rightflipperButton) == LOW) ? HIGH : LOW;
       selShootTimer = millis();
+      selLeftTimer = millis();
+      selRightTimer = millis();
       selTimeoutTimer = millis();
       intmon = 3;
       SendData();
+      SendGameModeState();
     }
   }
 
-  //// Player select mod: shoot gomb = +1 jatekos, 2. start = jatek indul
+  //// Player/mode select: shoot = jatekosszam, flipperek = mode, start = inditas
   if (intmon == 3) {
     SendData(); // folyamatos pontszam/jatekosszam kuldes a GUI-nak
+    if (millis() - selModeLastSendAt >= GAME_MODE_SNAPSHOT_MS) {
+      SendGameModeState();
+    }
 
     if (selArmSw == LOW && SimDigitalRead(startButton) == HIGH) {
       selArmSw = HIGH; // a belepo startnyomas elengedve -> a kovetkezo mar indit
@@ -2295,13 +2359,40 @@ void intmMode() {
       if (numofplayers == 5) {
         numofplayers = 1;
       }
+      NormalizeSelectedGameMode();
       wTrig.trackPlayPoly(TRK_ADDPLAYER);
       SendData();
+      SendGameModeState();
+    }
+
+    if (selLeftSw == HIGH && millis() - selLeftTimer > 120UL &&
+        SimDigitalRead(leftFlipperButton) == HIGH) {
+      selLeftSw = LOW;
+    }
+    if (selRightSw == HIGH && millis() - selRightTimer > 120UL &&
+        SimDigitalRead(rightflipperButton) == HIGH) {
+      selRightSw = LOW;
+    }
+
+    if (SimDigitalRead(leftFlipperButton) == LOW && selLeftSw == LOW) {
+      selLeftSw = HIGH;
+      selLeftTimer = millis();
+      selTimeoutTimer = millis();
+      StepSelectedGameMode(-1);
+      SendGameModeState();
+    }
+    if (SimDigitalRead(rightflipperButton) == LOW && selRightSw == LOW) {
+      selRightSw = HIGH;
+      selRightTimer = millis();
+      selTimeoutTimer = millis();
+      StepSelectedGameMode(1);
+      SendGameModeState();
     }
 
     // 2. start: jatek inditasa a kivalasztott jatekosszammal
     if (selArmSw == HIGH && SimDigitalRead(startButton) == LOW) {
       wTrig.trackPlayPoly(TRK_WEED);
+      SendGameStart();
       Serial.println("Zero");
       delay(300);
       intmon = 0;
@@ -2364,6 +2455,7 @@ void intmMode() {
     if (millis() - selTimeoutTimer > 60000) {
       intmon = 1;
       numofplayers = 1;
+      selectedGameMode = GAME_STANDARD;
       heysoundtimer = millis();
       Serial.println("Attract"); // GUI: attract-loop ujraindul
       delay(20);
