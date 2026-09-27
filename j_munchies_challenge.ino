@@ -3,26 +3,15 @@
 
 enum StandaloneMunchiesState : uint8_t {
   SMC_IDLE = 0,
-  SMC_READY,
   SMC_RUNNING,
   SMC_COMPLETE
 };
 
 StandaloneMunchiesState standaloneMunchiesState = SMC_IDLE;
-uint8_t standaloneMunchiesLastCountdown = 255;
-unsigned long standaloneMunchiesStateAt = 0;
-const uint8_t STANDALONE_MUNCHIES_COUNTDOWN_SECONDS = 3;
 
 boolean StandaloneMunchiesOwnsGameLoop() {
   return runningGameMode == GAME_MUNCHIES &&
          standaloneMunchiesState != SMC_IDLE;
-}
-
-void SendStandaloneMunchiesReady(uint8_t secondsLeft) {
-  Serial.print(F("MUNCHIES_READY,"));
-  Serial.print(player);
-  Serial.print(',');
-  Serial.println(secondsLeft);
 }
 
 void BeginStandaloneMunchiesPlayer() {
@@ -31,10 +20,12 @@ void BeginStandaloneMunchiesPlayer() {
   BIP = 1;
   bonus = 0;
   bonusx = 0;
-  standaloneMunchiesState = SMC_READY;
-  standaloneMunchiesStateAt = millis();
-  standaloneMunchiesLastCountdown = STANDALONE_MUNCHIES_COUNTDOWN_SECONDS;
-  SendStandaloneMunchiesReady(standaloneMunchiesLastCountdown);
+  standaloneMunchiesState = SMC_RUNNING;
+  Serial.print(F("MUNCHIES_PLAYER,"));
+  Serial.println(player);
+  // A minijateknak sajat introja es 3-2-1 visszaszamlalasa van, ezert a
+  // firmware nem var elotte meg egy masodik countdownra.
+  StartMunchiesMode(MUNCHIES_STANDALONE_CHALLENGE);
 }
 
 void StartStandaloneMunchiesChallenge() {
@@ -72,20 +63,6 @@ void StandaloneMunchiesRunFinished() {
 }
 
 void StandaloneMunchiesUpdate() {
-  if (!StandaloneMunchiesOwnsGameLoop()) return;
-  if (standaloneMunchiesState != SMC_READY) return;
-
-  const unsigned long now = millis();
-  uint8_t elapsed = (uint8_t)((now - standaloneMunchiesStateAt) / 1000UL);
-  uint8_t remaining = elapsed >= STANDALONE_MUNCHIES_COUNTDOWN_SECONDS
-                        ? 0
-                        : STANDALONE_MUNCHIES_COUNTDOWN_SECONDS - elapsed;
-  if (remaining != standaloneMunchiesLastCountdown) {
-    standaloneMunchiesLastCountdown = remaining;
-    SendStandaloneMunchiesReady(remaining);
-  }
-  if (elapsed >= STANDALONE_MUNCHIES_COUNTDOWN_SECONDS) {
-    standaloneMunchiesState = SMC_RUNNING;
-    StartMunchiesMode(MUNCHIES_STANDALONE_CHALLENGE);
-  }
+  // A kozos main loop ezt minden frame-ben hivja. Standalone modban az
+  // aktiv munkat maga a MunchiesUpdate vegzi; itt nincs kulso countdown.
 }

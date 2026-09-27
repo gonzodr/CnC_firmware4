@@ -29,9 +29,15 @@ class MunchiesChallengeTests(unittest.TestCase):
         self.assertIn("digitalWrite(ufoCoil, LOW);", standalone)
         self.assertIn("StandaloneMunchiesRunFinished();", standalone)
 
-    def test_each_player_gets_countdown_result_and_winner_finish(self):
-        self.assertIn("STANDALONE_MUNCHIES_COUNTDOWN_SECONDS = 3", CHALLENGE)
-        self.assertIn('F("MUNCHIES_READY,")', CHALLENGE)
+    def test_each_player_starts_immediately_then_reports_result_and_winner(self):
+        self.assertNotIn("STANDALONE_MUNCHIES_COUNTDOWN_SECONDS", CHALLENGE)
+        self.assertNotIn('F("MUNCHIES_READY,")', CHALLENGE)
+        self.assertIn('F("MUNCHIES_PLAYER,")', CHALLENGE)
+        player_start = CHALLENGE.split("void BeginStandaloneMunchiesPlayer()", 1)[1]
+        self.assertLess(
+            player_start.index('F("MUNCHIES_PLAYER,")'),
+            player_start.index("StartMunchiesMode(MUNCHIES_STANDALONE_CHALLENGE);"),
+        )
         self.assertIn('F("MUNCHIES_RESULT,")', CHALLENGE)
         self.assertIn('F("MUNCHIES_FINISH,")', CHALLENGE)
         self.assertIn("if (player < numofplayers)", CHALLENGE)

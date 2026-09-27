@@ -1147,8 +1147,8 @@ void loop() {
     if (PollGameplayServiceEntry()) return;
     StandaloneMunchiesUpdate();
     if (StandaloneMunchiesOwnsGameLoop()) {
-      // Challenge countdown/results kozben nincs fizikai golyojatek. Aktiv
-      // futam alatt ugyanaz a MunchiesUpdate kezeli a cabinet inputot.
+      // A standalone challenge sajat lifecycle-ja alatt nincs fizikai
+      // golyojatek; ugyanaz a MunchiesUpdate kezeli a cabinet inputot.
       if (MunchiesOwnsGameLoop()) MunchiesUpdate();
       digitalWrite(leftFlipperBat, LOW);
       digitalWrite(rightFlipperBat, LOW);
