@@ -1145,6 +1145,7 @@ void loop() {
       MunchiesUpdate();
     }
     else {
+      MayhemUpdate();
       // Az egyszeri Initlights() nem eleg az overlayek ala: a teljesen
       // statikus LED-ek alapjat minden frame-ben ujra fel kell epiteni.
       RestoreStaticPlayfieldLeds();
@@ -1175,6 +1176,7 @@ void loop() {
       BridgeHigh();
       HurryUp();
       Tilt();
+      MayhemEnforceSafety();
       GiftRunlight();     // gift-fazis futofeny az inaktiv postokon (Weed/CnC/Fishtank UTAN!)
 #ifdef FX_PROFILE
       unsigned long fxProfileStart = micros();
@@ -1345,7 +1347,7 @@ void Ballhandler() {
     //// Nextball
     //////////////
 
-    if (ballsaversw == LOW && shoot == 0 && firstplay == LOW) {
+    if (!MayhemOwnsGameLifecycle() && ballsaversw == LOW && shoot == 0 && firstplay == LOW) {
       if (BIS == 5 && bisFiveReads >= BALL_DRAIN_CONFIRM_READS &&
           millis() - bisFiveSince >= BALL_DRAIN_CONFIRM_MS) {
       digitalWrite(leftFlipperBat, LOW);
@@ -2467,6 +2469,9 @@ void intmMode() {
       bonusx = 0;
       ballTilted = LOW;
       coopTeamExtraBallAwarded = LOW;
+      if (runningGameMode == GAME_MULTIBALL_MAYHEM) {
+        StartMayhemChallenge();
+      }
     }
 
     // 60 mp tetlenseg: vissza az attract modba
@@ -2729,6 +2734,7 @@ void Score(unsigned long scr, unsigned long bns) {
 
 void ScoreJackpot(unsigned long scr, unsigned long bns) {
   AddAwardedScore(JackpotScorePoints(scr), bns);
+  MayhemJackpotCollected();
 }
 
 uint8_t ScoreOwner() {
