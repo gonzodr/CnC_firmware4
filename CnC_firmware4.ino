@@ -1145,7 +1145,15 @@ void loop() {
 
   if (intmon == LOW) {
     if (PollGameplayServiceEntry()) return;
-    if (MunchiesOwnsGameLoop()) {
+    StandaloneMunchiesUpdate();
+    if (StandaloneMunchiesOwnsGameLoop()) {
+      // Challenge countdown/results kozben nincs fizikai golyojatek. Aktiv
+      // futam alatt ugyanaz a MunchiesUpdate kezeli a cabinet inputot.
+      if (MunchiesOwnsGameLoop()) MunchiesUpdate();
+      digitalWrite(leftFlipperBat, LOW);
+      digitalWrite(rightFlipperBat, LOW);
+    }
+    else if (MunchiesOwnsGameLoop()) {
       // A golyo a VUK-ban parkol: a fizikai jateklogika es a flippertekercsek
       // szunetelnek, de a soros input, watchdog es tekercsvedelem tovabb fut.
       MunchiesUpdate();
@@ -2484,6 +2492,9 @@ void intmMode() {
       coopTeamExtraBallAwarded = LOW;
       if (runningGameMode == GAME_MULTIBALL_MAYHEM) {
         StartMayhemChallenge();
+      }
+      else if (runningGameMode == GAME_MUNCHIES) {
+        StartStandaloneMunchiesChallenge();
       }
     }
 

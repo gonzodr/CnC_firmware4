@@ -149,6 +149,7 @@ void BeginMunchiesEject() {
     digitalWrite(leftFlipperBat, LOW);
     digitalWrite(rightFlipperBat, LOW);
     digitalWrite(ufoCoil, LOW);
+    StandaloneMunchiesRunFinished();
     return;
   }
 
@@ -266,7 +267,14 @@ void HandleMunchiesCommand(const char* command) {
     unsigned long earned = strtoul(bonusToken, &endp, 10);
     if (*endp != '\0') return;
 
-    Score(earned, 0);
+    if (munchiesStartContext == MUNCHIES_STANDALONE_CHALLENGE) {
+      // Challenge leaderboard: a minijatek pontos eredmenye, palyai 2x vagy
+      // mas normal-game modositok nelkul.
+      AddAwardedScore(earned, 0);
+    }
+    else {
+      Score(earned, 0);
+    }
     munchiesLastDoneSession = session;
     Serial.print("MG_ACK,");
     Serial.println(session);
