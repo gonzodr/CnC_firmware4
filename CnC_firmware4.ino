@@ -673,6 +673,10 @@ enum GameMode : uint8_t {
 };
 
 GameMode selectedGameMode = GAME_STANDARD;
+// A valasztott mod csak a player-select szerkesztheto allapota. Inditaskor
+// kulon lezarjuk az aktiv rulesetet, hogy egy kesobbi selector/reset ag vagy
+// memoriaban maradt bemeneti esemeny ne tudja menet kozben Standardra valtani.
+GameMode runningGameMode = GAME_STANDARD;
 const uint8_t GAME_MODE_COUNT = 5;
 const uint8_t GAME_MODE_MASK_ALL = (1U << GAME_MODE_COUNT) - 1U;
 
@@ -1383,7 +1387,7 @@ void Ballhandler() {
         const uint8_t progressOwner = ProgressOwner();
         const boolean settleHeldJoint =
           (ball == 3 && extraball == 0 &&
-           (selectedGameMode != GAME_COOP || player == numofplayers));
+           (runningGameMode != GAME_COOP || player == numofplayers));
         if (settleHeldJoint && jointStack[progressOwner] > 0) {
           uint8_t heldIndex = jointStack[progressOwner] - 1;
           if (heldIndex > 2) heldIndex = 2;
@@ -2082,6 +2086,7 @@ void ResetAbortedGameplayState() {
   ball = 1;
   player = 1;
   numofplayers = 1;
+  runningGameMode = GAME_STANDARD;
   ResetLightEffectsForAttract();
 }
 
@@ -2260,8 +2265,9 @@ void SendGameModeState() {
 
 void SendGameStart() {
   NormalizeSelectedGameMode();
+  runningGameMode = selectedGameMode;
   Serial.print(F("GAME_START,"));
-  Serial.print((uint8_t)selectedGameMode);
+  Serial.print((uint8_t)runningGameMode);
   Serial.print(',');
   Serial.println(numofplayers);
 }
@@ -2330,6 +2336,7 @@ void intmMode() {
       delay(20);
       numofplayers = 1;
       selectedGameMode = GAME_STANDARD;
+      runningGameMode = GAME_STANDARD;
       selArmSw = LOW;          // az inditashoz elobb el kell engedni a startot
       selShootSw = HIGH;       // a shoot gombot is elesiteni kell
       selLeftSw = (SimDigitalRead(leftFlipperButton) == LOW) ? HIGH : LOW;
@@ -2465,6 +2472,7 @@ void intmMode() {
       intmon = 1;
       numofplayers = 1;
       selectedGameMode = GAME_STANDARD;
+      runningGameMode = GAME_STANDARD;
       heysoundtimer = millis();
       Serial.println("Attract"); // GUI: attract-loop ujraindul
       delay(20);
@@ -2548,7 +2556,7 @@ void inittable() {
     // A mar megsodort jointok es a sorok kulon, tartos gyujtemenyek.
     // Standardban tovabbra is golyohoz kotott. CO-OP-ban a kozos csapat
     // kvalifikacioja jatekosvaltaskor megmarad, amig el nem fogyasztjak.
-    if (selectedGameMode != GAME_COOP) {
+    if (runningGameMode != GAME_COOP) {
       weedQualified[ProgressOwner()] = LOW;
     }
     fishTankLightState1 = 0;
@@ -2625,9 +2633,10 @@ void SendData() {
     sendDtimer = millis();
   }
   if (millis() - 350 > sendDtimer && sendDsw == HIGH) {
-    char scoremsg[64];
-    snprintf(scoremsg, sizeof(scoremsg), "score,%lu,%d,%d,%d,%lu,%d",
-             score[ScoreOwner()], numofplayers, player, ball, bonus, bonusx);
+    char scoremsg[68];
+    snprintf(scoremsg, sizeof(scoremsg), "score,%lu,%d,%d,%d,%lu,%d,%u",
+             score[ScoreOwner()], numofplayers, player, ball, bonus, bonusx,
+             (uint8_t)runningGameMode);
     Serial.println(scoremsg);
     sendDsw = LOW;
   }
@@ -2721,12 +2730,12 @@ void ScoreJackpot(unsigned long scr, unsigned long bns) {
 }
 
 uint8_t ScoreOwner() {
-  if (selectedGameMode == GAME_COOP) return 0;
+  if (runningGameMode == GAME_COOP) return 0;
   return (uint8_t)player;
 }
 
 uint8_t ProgressOwner() {
-  if (selectedGameMode == GAME_COOP) return 0;
+  if (runningGameMode == GAME_COOP) return 0;
   return (uint8_t)player;
 }
 
@@ -2737,7 +2746,7 @@ void StartBallSave(uint32_t durationMs) {
 }
 
 uint32_t NormalBallSaveDurationMs() {
-  if (selectedGameMode == GAME_COOP) return NORMAL_BALL_SAVE_MS_COOP;
+  if (runningGameMode == GAME_COOP) return NORMAL_BALL_SAVE_MS_COOP;
   return NORMAL_BALL_SAVE_MS_STANDARD;
 }
 
@@ -2779,16 +2788,16 @@ void StartUfoEjectBallSave(unsigned long minimumMs) {
 
 boolean ExtraBallLotteryBlocked() {
   return (extraball > 0 || extraBallLit == HIGH ||
-          (selectedGameMode == GAME_COOP && coopTeamExtraBallAwarded == HIGH));
+          (runningGameMode == GAME_COOP && coopTeamExtraBallAwarded == HIGH));
 }
 
 boolean TryAwardExtraBall() {
-  if (selectedGameMode == GAME_COOP && coopTeamExtraBallAwarded == HIGH) {
+  if (runningGameMode == GAME_COOP && coopTeamExtraBallAwarded == HIGH) {
     return false;
   }
   if (extraball > 0) return false;
   extraball = 1;
-  if (selectedGameMode == GAME_COOP) coopTeamExtraBallAwarded = HIGH;
+  if (runningGameMode == GAME_COOP) coopTeamExtraBallAwarded = HIGH;
   return true;
 }
 
@@ -2943,7 +2952,7 @@ int DrawStandardUfoLottery(uint8_t tier) {
     const uint8_t singleResults[2] = { 5, 10 };
     const uint8_t multiResults[3]  = { 5, 8, 10 };
     do {
-      result = (numofplayers == 1 || selectedGameMode == GAME_COOP)
+      result = (numofplayers == 1 || runningGameMode == GAME_COOP)
         ? singleResults[random(0, 2)]
         : multiResults[random(0, 3)];
     } while (result == 10 && ExtraBallLotteryBlocked());
@@ -2954,7 +2963,7 @@ int DrawStandardUfoLottery(uint8_t tier) {
     const uint8_t singleResults[5] = { 3, 4, 5, 6, 10 };
     const uint8_t multiResults[6]  = { 3, 4, 5, 6, 8, 10 };
     do {
-      result = (numofplayers == 1 || selectedGameMode == GAME_COOP)
+      result = (numofplayers == 1 || runningGameMode == GAME_COOP)
         ? singleResults[random(0, 5)]
         : multiResults[random(0, 6)];
     } while (result == 10 && ExtraBallLotteryBlocked());

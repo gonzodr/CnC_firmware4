@@ -14,7 +14,7 @@ class GameplayFieldFixes(unittest.TestCase):
     def test_weed_qualification_ends_with_ball(self):
         init = re.search(r"void inittable\(\) \{(.*?)\n\}", SKETCH, re.DOTALL)
         self.assertIsNotNone(init)
-        self.assertIn("selectedGameMode != GAME_COOP", init.group(1))
+        self.assertIn("runningGameMode != GAME_COOP", init.group(1))
         self.assertIn("weedQualified[ProgressOwner()] = LOW;", init.group(1))
         self.assertNotIn("jointStack[ProgressOwner()] = 0;", init.group(1))
 

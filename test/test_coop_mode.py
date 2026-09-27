@@ -21,9 +21,18 @@ class CoopModeTests(unittest.TestCase):
         self.assertIsNotNone(score_owner)
         self.assertIsNotNone(progress_owner)
         for body in (score_owner.group(1), progress_owner.group(1)):
-            self.assertIn("selectedGameMode == GAME_COOP", body)
+            self.assertIn("runningGameMode == GAME_COOP", body)
             self.assertIn("return 0;", body)
             self.assertIn("return (uint8_t)player;", body)
+
+    def test_running_mode_is_latched_once_at_game_start(self):
+        self.assertIn("GameMode runningGameMode = GAME_STANDARD;", SOURCE)
+        game_start = re.search(
+            r"void SendGameStart\(\) \{(.*?)\n\}", SOURCE, re.DOTALL
+        )
+        self.assertIsNotNone(game_start)
+        self.assertIn("runningGameMode = selectedGameMode;", game_start.group(1))
+        self.assertIn("Serial.print((uint8_t)runningGameMode);", game_start.group(1))
 
     def test_all_coop_progress_fields_are_routed_through_owner(self):
         for field in (
@@ -61,12 +70,13 @@ class CoopModeTests(unittest.TestCase):
     def test_serial_score_uses_the_team_owner(self):
         self.assertRegex(
             SOURCE,
-            r'(?s)"score,%lu,%d,%d,%d,%lu,%d".*?score\[ScoreOwner\(\)\]',
+            r'(?s)"score,%lu,%d,%d,%d,%lu,%d,%u".*?'
+            r'score\[ScoreOwner\(\)\].*?runningGameMode',
         )
 
     def test_coop_never_steals_score_from_a_teammate(self):
         self.assertEqual(
-            SOURCE.count("numofplayers == 1 || selectedGameMode == GAME_COOP"),
+            SOURCE.count("numofplayers == 1 || runningGameMode == GAME_COOP"),
             2,
         )
 
@@ -77,13 +87,13 @@ class CoopModeTests(unittest.TestCase):
         self.assertIsNotNone(init_table)
         self.assertRegex(
             init_table.group(1),
-            r"(?s)selectedGameMode != GAME_COOP.*?"
+            r"(?s)runningGameMode != GAME_COOP.*?"
             r"weedQualified\[ProgressOwner\(\)\] = LOW",
         )
 
     def test_held_team_joint_settles_only_on_the_last_team_turn(self):
         self.assertIn(
-            "selectedGameMode != GAME_COOP || player == numofplayers", SOURCE
+            "runningGameMode != GAME_COOP || player == numofplayers", SOURCE
         )
 
 
