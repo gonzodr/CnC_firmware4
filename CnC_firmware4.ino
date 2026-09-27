@@ -155,6 +155,8 @@ int simForceLottery = 0; // cinkelt UFO-lotto: 7=SpaceCoke, 8=pontlopas, 9=minig
 #define TRK_DAVENOTHERE        51
 #define TRK_MUS_THAI_STICK     63
 #define TRK_MUS_LABRADOR       64
+#define TRK_MUS_MODE_SELECT     66  // 0066_mus_Mode_select_groove.wav
+#define TRK_MODE_SELECT_WOOSH   67  // 0067_fx_woosh.wav
 #define TRK_WEEDFULL           72
 #define TRK_JACKPOT            73
 #define TRK_DANGER             86
@@ -952,6 +954,9 @@ boolean selLeftSw = LOW;
 boolean selRightSw = LOW;
 unsigned long selShootTimer = 0;
 unsigned long selTimeoutTimer = 0;
+boolean modeSelectGrooveSeenPlaying = LOW;
+const unsigned long MODE_SELECT_AUDIO_GRACE_MS = 1000UL;
+const unsigned long MODE_SELECT_FALLBACK_TIMEOUT_MS = 180000UL;
 unsigned long selLeftTimer = 0;
 unsigned long selRightTimer = 0;
 unsigned long selModeLastSendAt = 0;
@@ -1096,6 +1101,7 @@ void setup() {
   //// Wav Trigger Init
   wTrig.start();
   delay(1000);
+  wTrig.setReporting(true); // a mode-select zene valodi veget figyeljuk
   wTrig.stopAllTracks();
   wTrig.masterGain(0);
   wTrig.trackPlayPoly(TRK_BOOT);
@@ -2350,6 +2356,8 @@ void intmMode() {
       selRightTimer = millis();
       selTimeoutTimer = millis();
       intmon = 3;
+      modeSelectGrooveSeenPlaying = LOW;
+      wTrig.trackPlayPoly(TRK_MUS_MODE_SELECT); // egyszeri, nem loopolo groove
       SendData();
       SendGameModeState();
     }
@@ -2398,6 +2406,8 @@ void intmMode() {
       selLeftTimer = millis();
       selTimeoutTimer = millis();
       StepSelectedGameMode(-1);
+      wTrig.trackPlayPoly(TRK_KEYLEFT);
+      wTrig.trackPlayPoly(TRK_MODE_SELECT_WOOSH);
       SendGameModeState();
     }
     if (SimDigitalRead(rightflipperButton) == LOW && selRightSw == LOW) {
@@ -2405,11 +2415,14 @@ void intmMode() {
       selRightTimer = millis();
       selTimeoutTimer = millis();
       StepSelectedGameMode(1);
+      wTrig.trackPlayPoly(TRK_KEYRIGHT);
+      wTrig.trackPlayPoly(TRK_MODE_SELECT_WOOSH);
       SendGameModeState();
     }
 
     // 2. start: jatek inditasa a kivalasztott jatekosszammal
     if (selArmSw == HIGH && SimDigitalRead(startButton) == LOW) {
+      wTrig.trackStop(TRK_MUS_MODE_SELECT);
       wTrig.trackPlayPoly(TRK_WEED);
       SendGameStart();
       Serial.println("Zero");
@@ -2474,8 +2487,18 @@ void intmMode() {
       }
     }
 
-    // 60 mp tetlenseg: vissza az attract modba
-    if (millis() - selTimeoutTimer > 60000) {
+    // A groove egyszer fut le. A WAV Trigger playback reportja utan annak
+    // tenyleges vege zarja a selectort; a 180 mp csak kommunikacios fallback.
+    const boolean modeSelectGroovePlaying =
+        wTrig.isTrackPlaying(TRK_MUS_MODE_SELECT);
+    if (modeSelectGroovePlaying) modeSelectGrooveSeenPlaying = HIGH;
+    const boolean modeSelectGrooveEnded =
+        modeSelectGrooveSeenPlaying == HIGH && !modeSelectGroovePlaying;
+    const boolean modeSelectFallbackExpired =
+        millis() - selTimeoutTimer > MODE_SELECT_FALLBACK_TIMEOUT_MS;
+    if ((millis() - selTimeoutTimer > MODE_SELECT_AUDIO_GRACE_MS &&
+         modeSelectGrooveEnded) || modeSelectFallbackExpired) {
+      wTrig.trackStop(TRK_MUS_MODE_SELECT);
       intmon = 1;
       numofplayers = 1;
       selectedGameMode = GAME_STANDARD;

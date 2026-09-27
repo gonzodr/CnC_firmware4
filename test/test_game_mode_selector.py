@@ -11,6 +11,19 @@ SOURCE = (Path(__file__).resolve().parents[1] / "CnC_firmware4.ino").read_text(
 
 
 class GameModeSelectorTests(unittest.TestCase):
+    def test_selector_audio_uses_one_shot_groove_and_layered_navigation_fx(self):
+        self.assertIn("TRK_MUS_MODE_SELECT     66", SOURCE)
+        self.assertIn("TRK_MODE_SELECT_WOOSH   67", SOURCE)
+        self.assertIn("wTrig.trackPlayPoly(TRK_MUS_MODE_SELECT);", SOURCE)
+        self.assertNotIn("wTrig.trackLoop(TRK_MUS_MODE_SELECT", SOURCE)
+        self.assertIn("wTrig.trackPlayPoly(TRK_KEYLEFT);", SOURCE)
+        self.assertIn("wTrig.trackPlayPoly(TRK_KEYRIGHT);", SOURCE)
+        self.assertGreaterEqual(
+            SOURCE.count("wTrig.trackPlayPoly(TRK_MODE_SELECT_WOOSH);"), 2
+        )
+        self.assertIn("wTrig.isTrackPlaying(TRK_MUS_MODE_SELECT)", SOURCE)
+        self.assertIn("modeSelectGrooveEnded", SOURCE)
+
     def test_one_player_mask_excludes_only_coop(self):
         body = re.search(
             r"uint8_t AvailableGameModeMask\(uint8_t playerCount\) \{(.*?)\n\}",
