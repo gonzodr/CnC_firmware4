@@ -3002,14 +3002,14 @@ int DrawQuickUfoLottery(uint8_t tier) {
     return DrawStandardUfoLottery(tier);
   }
 
-  // A klasszikus egyszeru UFO-lotto partybarat valtozata. Nincs pontlopas;
-  // a latvanyos feature-ok (Hurry, Munchies, Space Coke) kozvetlenul is
-  // kijöhetnek. Az EB-kimeneteket ujrahuzzuk, ha mar nem adhatok ki.
-  int result;
-  do {
-    result = random(1, 10); // 1..9
-    if (result >= 8) result++; // a 8-as pontlopast atugorva: 1..7,9,10
-  } while ((result == 1 || result == 10) && ExtraBallLotteryBlocked());
+  // Partybarat alap-UFO: negy pontjutalom, Space Coke, Munchies vagy
+  // Extra Ball Lit. A kozvetlen Extra Ball es a Hurry Up kizarolag a WEED
+  // utan elerheto Feature Wheelben marad; pontlopas sincs Quickben.
+  int result = random(3, 10); // 3..9
+  if (result == 8) result = 10; // pontlopas helyett Extra Ball Lit
+  while (result == 10 && ExtraBallLotteryBlocked()) {
+    result = random(3, 8); // ilyenkor biztosan 3..7 kozul huzunk
+  }
   return result;
 }
 

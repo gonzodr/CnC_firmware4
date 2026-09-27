@@ -40,7 +40,10 @@ class QuickModeTests(unittest.TestCase):
         self.assertIsNotNone(quick_draw)
         self.assertIn("UFO_PARTY_QUICK_RANDOM", tier.group(1))
         self.assertIn("UFO_PARTY_FEATURE_WHEEL", tier.group(1))
-        self.assertIn("if (result >= 8) result++;", quick_draw.group(1))
+        self.assertIn("int result = random(3, 10);", quick_draw.group(1))
+        self.assertIn("if (result == 8) result = 10;", quick_draw.group(1))
+        self.assertNotRegex(quick_draw.group(1), r"result\s*=\s*1\b")
+        self.assertNotRegex(quick_draw.group(1), r"result\s*=\s*2\b")
         self.assertNotIn("result = 8", quick_draw.group(1))
 
     def test_weed_qualifies_existing_feature_wheel_in_quick(self):
