@@ -14,8 +14,9 @@ class GameplayFieldFixes(unittest.TestCase):
     def test_weed_qualification_ends_with_ball(self):
         init = re.search(r"void inittable\(\) \{(.*?)\n\}", SKETCH, re.DOTALL)
         self.assertIsNotNone(init)
-        self.assertIn("weedQualified[player] = LOW;", init.group(1))
-        self.assertNotIn("jointStack[player] = 0;", init.group(1))
+        self.assertIn("selectedGameMode != GAME_COOP", init.group(1))
+        self.assertIn("weedQualified[ProgressOwner()] = LOW;", init.group(1))
+        self.assertNotIn("jointStack[ProgressOwner()] = 0;", init.group(1))
 
     def test_multiball_meter_uses_corrected_physical_led_order(self):
         for name, led in (
@@ -52,10 +53,10 @@ class GameplayFieldFixes(unittest.TestCase):
         self.assertIn("boolean cncCollectionLit[]", SKETCH)
         self.assertRegex(
             SKETCH,
-            r"cncCollectionLit\[player\] == HIGH &&\s*multiball == 0",
+            r"cncCollectionLit\[owner\] == HIGH &&\s*multiball == 0",
         )
-        self.assertIn("cncCollectionLit[player] = HIGH;", SKETCH)
-        self.assertEqual(SKETCH.count("cncCollectionLit[player] = LOW;"), 2)
+        self.assertIn("cncCollectionLit[owner] = HIGH;", SKETCH)
+        self.assertEqual(SKETCH.count("cncCollectionLit[owner] = LOW;"), 2)
         self.assertEqual(SKETCH.count("Scoring::MULTIBALL_CHARACTER_POINTS"), 2)
 
     def test_collectible_hit_does_not_use_inactive_voice_pool(self):

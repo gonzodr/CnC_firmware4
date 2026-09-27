@@ -636,10 +636,12 @@ int ball3 = 0;
 int ball4 = 0;
 int ball5 = 0;
 const uint32_t NORMAL_BALL_SAVE_MS_STANDARD = 15000UL;
+const uint32_t NORMAL_BALL_SAVE_MS_COOP = 5000UL;
 const uint32_t MULTIBALL_BALL_SAVE_MS = 30000UL;
 uint32_t ballsavetime = NORMAL_BALL_SAVE_MS_STANDARD;
 int extraball = 0;
 boolean extraBallLit = LOW;
+boolean coopTeamExtraBallAwarded = LOW;
 // A szenzoronkenti kuszobok a h_analog_test.ino-ban elnek (EEPROM-bol
 // toltve). Az Arduino preprocesszor csak FUGGVENY-prototipust general
 // automatikusan, valtozohoz nem - a .ino-k osszefuzesekor pedig ez a fajl
@@ -1378,15 +1380,19 @@ void Ballhandler() {
         // vett) joint a bonuszban fizet. Csak az egy-jointos allapot juthat
         // ide: kettot es harmat mar az UFO elvesz. A bonuszba tesszuk, hogy
         // a bonusz-szorzo is vonatkozzon ra.
-        if (ball == 3 && extraball == 0 && jointStack[player] > 0) {
-          uint8_t heldIndex = jointStack[player] - 1;
+        const uint8_t progressOwner = ProgressOwner();
+        const boolean settleHeldJoint =
+          (ball == 3 && extraball == 0 &&
+           (selectedGameMode != GAME_COOP || player == numofplayers));
+        if (settleHeldJoint && jointStack[progressOwner] > 0) {
+          uint8_t heldIndex = jointStack[progressOwner] - 1;
           if (heldIndex > 2) heldIndex = 2;
           Score(Scoring::JOINT_POINTS[heldIndex], Scoring::JOINT_BONUS[heldIndex]);
           wTrig.trackPlayPoly(TRK_BIGJOINT);
-          uint8_t heldBeers = jointStack[player];
-          jointStack[player] = 0;
-          beerCredits[player] = (beerCredits[player] > heldBeers)
-                                  ? (uint8_t)(beerCredits[player] - heldBeers) : 0;
+          uint8_t heldBeers = jointStack[progressOwner];
+          jointStack[progressOwner] = 0;
+          beerCredits[progressOwner] = (beerCredits[progressOwner] > heldBeers)
+                                  ? (uint8_t)(beerCredits[progressOwner] - heldBeers) : 0;
           SendPartyState();
         }
 
@@ -1403,7 +1409,8 @@ void Ballhandler() {
           if (bonusx == 4) {
             bonus = bonus * 8;
           }
-          score[player] = score[player] + bonus;
+          const uint8_t scoreOwner = ScoreOwner();
+          score[scoreOwner] = score[scoreOwner] + bonus;
           if (bonus > 0) {
             PlayBakedEffectOnce(35); // Ball End Bonus Count
           }
@@ -2007,6 +2014,7 @@ void DisableGameplayCoilsForService() {
 void ResetAbortedGameplayState() {
   extraball = 0;
   extraBallLit = LOW;
+  coopTeamExtraBallAwarded = LOW;
   ballsaversw = LOW;
   sidelaneBallsaverSw = LOW;
   ballsavetimer = 0;
@@ -2449,6 +2457,7 @@ void intmMode() {
       bonus = 0;
       bonusx = 0;
       ballTilted = LOW;
+      coopTeamExtraBallAwarded = LOW;
     }
 
     // 60 mp tetlenseg: vissza az attract modba
@@ -2537,7 +2546,11 @@ void inittable() {
     weedswitch4 = 0;
     // A friss WEED-lotto/spinner jogosultsag csak az aktualis golyoe.
     // A mar megsodort jointok es a sorok kulon, tartos gyujtemenyek.
-    weedQualified[player] = LOW;
+    // Standardban tovabbra is golyohoz kotott. CO-OP-ban a kozos csapat
+    // kvalifikacioja jatekosvaltaskor megmarad, amig el nem fogyasztjak.
+    if (selectedGameMode != GAME_COOP) {
+      weedQualified[ProgressOwner()] = LOW;
+    }
     fishTankLightState1 = 0;
     fishTankLightState2 = 0;
     chongLightActiveSw = 0;
@@ -2614,7 +2627,7 @@ void SendData() {
   if (millis() - 350 > sendDtimer && sendDsw == HIGH) {
     char scoremsg[64];
     snprintf(scoremsg, sizeof(scoremsg), "score,%lu,%d,%d,%d,%lu,%d",
-             score[player], numofplayers, player, ball, bonus, bonusx);
+             score[ScoreOwner()], numofplayers, player, ball, bonus, bonusx);
     Serial.println(scoremsg);
     sendDsw = LOW;
   }
@@ -2708,14 +2721,12 @@ void ScoreJackpot(unsigned long scr, unsigned long bns) {
 }
 
 uint8_t ScoreOwner() {
-  // A CO-OP kesobb a kozos 0. slotot fogja visszaadni. Standardban ez
-  // szandekosan pontosan a korabbi score[player] viselkedes.
+  if (selectedGameMode == GAME_COOP) return 0;
   return (uint8_t)player;
 }
 
 uint8_t ProgressOwner() {
-  // Kulon helper marad, mert a score es a progression tulajdonosa challenge
-  // modokban kesobb elterhet. Egyelore nincs viselkedesvaltozas.
+  if (selectedGameMode == GAME_COOP) return 0;
   return (uint8_t)player;
 }
 
@@ -2726,7 +2737,7 @@ void StartBallSave(uint32_t durationMs) {
 }
 
 uint32_t NormalBallSaveDurationMs() {
-  // A kovetkezo lepesben ez lesz a mode-policy belepesi pontja.
+  if (selectedGameMode == GAME_COOP) return NORMAL_BALL_SAVE_MS_COOP;
   return NORMAL_BALL_SAVE_MS_STANDARD;
 }
 
@@ -2767,14 +2778,17 @@ void StartUfoEjectBallSave(unsigned long minimumMs) {
 }
 
 boolean ExtraBallLotteryBlocked() {
-  return (extraball > 0 || extraBallLit == HIGH);
+  return (extraball > 0 || extraBallLit == HIGH ||
+          (selectedGameMode == GAME_COOP && coopTeamExtraBallAwarded == HIGH));
 }
 
 boolean TryAwardExtraBall() {
-  // Standardban a korabbi, nem stackelo viselkedest tartja meg. A kesobbi
-  // CO-OP egyszeri team-limitet egyedul ezen a kapun kell majd ervenyesiteni.
+  if (selectedGameMode == GAME_COOP && coopTeamExtraBallAwarded == HIGH) {
+    return false;
+  }
   if (extraball > 0) return false;
   extraball = 1;
+  if (selectedGameMode == GAME_COOP) coopTeamExtraBallAwarded = HIGH;
   return true;
 }
 
@@ -2783,13 +2797,14 @@ uint8_t CurrentUfoPartyTier() {
   // Egy joint ONMAGABAN inaktiv, igy tovabb gyujtheto. Ha melle ujra
   // kigyullad a WEED, az UFO Super Cashout lotteryt ad, de a jointot nem
   // fogyasztja el. Joint nelkul a WEED a sima Cashoutot nyitja.
-  if (jointStack[player] >= 3) return UFO_PARTY_LOVE_PACK;
-  if (jointStack[player] == 2) return UFO_PARTY_FEATURE_WHEEL;
-  if (jointStack[player] == 1) {
-    return (weedQualified[player] == HIGH)
+  const uint8_t owner = ProgressOwner();
+  if (jointStack[owner] >= 3) return UFO_PARTY_LOVE_PACK;
+  if (jointStack[owner] == 2) return UFO_PARTY_FEATURE_WHEEL;
+  if (jointStack[owner] == 1) {
+    return (weedQualified[owner] == HIGH)
              ? UFO_PARTY_SUPER_CASHOUT : UFO_PARTY_NONE;
   }
-  if (weedQualified[player] == HIGH) return UFO_PARTY_CASHOUT;
+  if (weedQualified[owner] == HIGH) return UFO_PARTY_CASHOUT;
   return UFO_PARTY_NONE;
 }
 
@@ -2797,16 +2812,18 @@ boolean RollJointLit() {
   // Az N. jointhoz N sor kell: az elsohoz 1, a masodikhoz 2, a harmadikhoz 3.
   // A jointok igy nem "fogyasztjak" a sort, hanem egyre tobbet kovetelnek meg
   // belole, tehat a ket szamlalo egyutt telik meg haromig.
-  return (weedQualified[player] == HIGH &&
-          beerCredits[player] >= jointStack[player] + 1 &&
-          jointStack[player] < 3 && multiball == 0 && hurryUp == LOW);
+  const uint8_t owner = ProgressOwner();
+  return (weedQualified[owner] == HIGH &&
+          beerCredits[owner] >= jointStack[owner] + 1 &&
+          jointStack[owner] < 3 && multiball == 0 && hurryUp == LOW);
 }
 
 void SendPartyState() {
+  const uint8_t owner = ProgressOwner();
   char msg[40];
   snprintf(msg, sizeof(msg), "Party,%d,%u,%u,%u,%u",
-           player, beerCredits[player], jointStack[player],
-           CurrentUfoPartyTier(), weedQualified[player] == HIGH ? 1 : 0);
+           player, beerCredits[owner], jointStack[owner],
+           CurrentUfoPartyTier(), weedQualified[owner] == HIGH ? 1 : 0);
   Serial.println(msg);
 }
 
@@ -2836,21 +2853,22 @@ void RestorePartyShotsForPlayer() {
     return;
   }
   ufosw = (CurrentUfoPartyTier() != UFO_PARTY_NONE) ? 1 : 0;
-  spinnersw = (weedQualified[player] == HIGH) ? 1 : 0;
+  spinnersw = (weedQualified[ProgressOwner()] == HIGH) ? 1 : 0;
 }
 
 void ConsumeUfoPartyReward(uint8_t tier) {
-  weedQualified[player] = LOW;
+  const uint8_t owner = ProgressOwner();
+  weedQualified[owner] = LOW;
   spinnersw = 0;
   // Csak a Feature Wheel es a Love Pack fogyasztja el a jointokat. A Super
   // Cashout elhasznalja a friss WEED-et, de az egy jointot meghagyja tovabbi
   // gyujteshez. A magasabb tiereknel a jointokkal EGYUTT a hozzajuk gyujtott
   // sor is elfogy - ket joint ket sort visz.
   if (tier >= UFO_PARTY_FEATURE_WHEEL) {
-    uint8_t spent = jointStack[player];
-    jointStack[player] = 0;
-    beerCredits[player] = (beerCredits[player] > spent)
-                            ? (uint8_t)(beerCredits[player] - spent) : 0;
+    uint8_t spent = jointStack[owner];
+    jointStack[owner] = 0;
+    beerCredits[owner] = (beerCredits[owner] > spent)
+                            ? (uint8_t)(beerCredits[owner] - spent) : 0;
   }
   ufosw = 0;
   SendPartyState();
@@ -2858,23 +2876,24 @@ void ConsumeUfoPartyReward(uint8_t tier) {
 
 void RollJoint() {
   if (!RollJointLit()) return;
+  const uint8_t owner = ProgressOwner();
 
   // A sor NEM fogy el a jointtol: a ket szamlalo egymastol fuggetlenul
   // gyulik 3-ig, es a Love Packhoz mindketto kell. A RollJointLit() tovabbra
   // is megkovetel legalabb egy sort ahhoz, hogy egyaltalan lehessen sodorni.
-  jointStack[player]++;
-  weedQualified[player] = LOW;
+  jointStack[owner]++;
+  weedQualified[owner] = LOW;
   spinnersw = 0;
   // Az UFO allapota a szintbol jon: egy jointnal inaktiv marad, kettonel-
   // haromnal viszont van mit atvennie.
   ufosw = (CurrentUfoPartyTier() != UFO_PARTY_NONE) ? 1 : 0;
 
-  uint8_t index = jointStack[player] - 1;
+  uint8_t index = jointStack[owner] - 1;
   Score(Scoring::JOINT_POINTS[index], Scoring::JOINT_BONUS[index]);
-  if (jointStack[player] == 1) {
+  if (jointStack[owner] == 1) {
     PlaySpeechRange(TRK_VO_CHONG_JOINT_ROLLED_1_A);
   }
-  else if (jointStack[player] == 2) {
+  else if (jointStack[owner] == 2) {
     PlaySpeechRange(TRK_VO_UFO_JOINT_ROLLED_2_A);
   }
   else {
@@ -2883,12 +2902,12 @@ void RollJoint() {
   // Fenyeffekt: az elso ket jointra a JointRolled (ID12), a harmadikra -
   // ami mar Love Packot jelent - a Lovepack (ID13). Mindketto overlay,
   // tehat a jatek-fenyre rajzol; a PlayBakedEffectOnce ezt magatol kezeli.
-  PlayBakedEffectOnce((jointStack[player] >= 3) ? 13 : 12);
+  PlayBakedEffectOnce((jointStack[owner] >= 3) ? 13 : 12);
 
-  if (jointStack[player] == 1) {
+  if (jointStack[owner] == 1) {
     SendPartyEvent("JOINT1");
   }
-  else if (jointStack[player] == 2) {
+  else if (jointStack[owner] == 2) {
     SendPartyEvent("JOINT2");
   }
   else {
@@ -2898,7 +2917,7 @@ void RollJoint() {
   // vannak. A PartyEvent csak szoveges allapot, video-triggert kulon kell
   // kuldeni - enelkul nem jatszott le semmit a sodrasnal.
   Serial.print("JOINT_ROLLED_");
-  Serial.println(jointStack[player]);
+  Serial.println(jointStack[owner]);
   delay(20);
   SendPartyState();
 }
@@ -2924,7 +2943,7 @@ int DrawStandardUfoLottery(uint8_t tier) {
     const uint8_t singleResults[2] = { 5, 10 };
     const uint8_t multiResults[3]  = { 5, 8, 10 };
     do {
-      result = (numofplayers == 1)
+      result = (numofplayers == 1 || selectedGameMode == GAME_COOP)
         ? singleResults[random(0, 2)]
         : multiResults[random(0, 3)];
     } while (result == 10 && ExtraBallLotteryBlocked());
@@ -2935,7 +2954,7 @@ int DrawStandardUfoLottery(uint8_t tier) {
     const uint8_t singleResults[5] = { 3, 4, 5, 6, 10 };
     const uint8_t multiResults[6]  = { 3, 4, 5, 6, 8, 10 };
     do {
-      result = (numofplayers == 1)
+      result = (numofplayers == 1 || selectedGameMode == GAME_COOP)
         ? singleResults[random(0, 5)]
         : multiResults[random(0, 6)];
     } while (result == 10 && ExtraBallLotteryBlocked());
@@ -3415,10 +3434,12 @@ void Left_Slingshot() {
 /////////////////////////////////////////////////
 
 void CnC() {
+  const uint8_t owner = ProgressOwner();
   // A mar megszerzett collection nem vesz el multiball alatt: soteten var,
-  // majd a mod vege utan ugyanennek a jatekosnak ujra felgyullad.
+  // majd a mod vege utan ugyanennek a tulajdonosnak (CO-OP-ban a csapatnak)
+  // ujra felgyullad.
   const boolean collectionAvailable =
-      (player >= 1 && player <= 4 && cncCollectionLit[player] == HIGH &&
+      (player >= 1 && player <= 4 && cncCollectionLit[owner] == HIGH &&
        multiball == 0);
   chongLightActiveSw = collectionAvailable;
   cheechLightActiveSw = collectionAvailable;
@@ -3514,7 +3535,7 @@ void CnC() {
     cncoff = 1;
     Score(Scoring::CNC_COMPLETE_POINTS, Scoring::CNC_COMPLETE_BONUS);
     PlayBakedEffectOnce(21); // C&C Complete: megnyilik Cheech es Chong lovese
-    cncCollectionLit[player] = HIGH;
+    cncCollectionLit[owner] = HIGH;
   }
 
   if (cncoff == 1) {
@@ -3817,6 +3838,7 @@ void Weed() {
 /////////////////////////////////////////////////
 
 void Fishtank() {
+  const uint8_t owner = ProgressOwner();
   static const uint8_t fishPin[2]   = { 16, 17 }; // fishTankSwitch1, 2
   static const uint8_t fishSound[2] = { TRK_PING, TRK_BEER };
   static const uint8_t fishLed[2]   = { LED_FISH, LED_TANK };
@@ -3877,14 +3899,14 @@ void Fishtank() {
     // HurryUp alatt a Fish Tank csak pontot ad: a sor-gyujtes ilyenkor
     // inaktiv, ugyanugy, ahogy a CnC ag is kulon HurryUp-modot fut.
     if (hurryUp == LOW) {
-      if (beerCredits[player] < 3) {
-        beerCredits[player]++;
+      if (beerCredits[owner] < 3) {
+        beerCredits[owner]++;
         PlaySpeechRange(TRK_VO_CHONG_BEER_COLLECTED_A);
         // A harmadik sor a keszlet teteje - az kap sajat csucspontot (ID27),
         // az elso ketto marad a rovid Fishtank overlayen.
-        PlayBakedEffectOnce(beerCredits[player] >= 3 ? 27 : 18);
+        PlayBakedEffectOnce(beerCredits[owner] >= 3 ? 27 : 18);
         Serial.print("Beer");
-        Serial.println(beerCredits[player]);
+        Serial.println(beerCredits[owner]);
         SendPartyEvent("BEER");
         SendPartyState();
       }
@@ -3910,10 +3932,10 @@ void Fishtank() {
   }
 
   if (effect == LOW) {
-    if (beerCredits[player] == 0) leds[LED_FISHTANK_AMBIENT] = CRGB::Black;
-    if (beerCredits[player] == 1) leds[LED_FISHTANK_AMBIENT] = CRGB(0, 0, 96);
-    if (beerCredits[player] == 2) leds[LED_FISHTANK_AMBIENT] = CRGB::Blue;
-    if (beerCredits[player] >= 3) leds[LED_FISHTANK_AMBIENT] = CRGB::Cyan;
+    if (beerCredits[owner] == 0) leds[LED_FISHTANK_AMBIENT] = CRGB::Black;
+    if (beerCredits[owner] == 1) leds[LED_FISHTANK_AMBIENT] = CRGB(0, 0, 96);
+    if (beerCredits[owner] == 2) leds[LED_FISHTANK_AMBIENT] = CRGB::Blue;
+    if (beerCredits[owner] >= 3) leds[LED_FISHTANK_AMBIENT] = CRGB::Cyan;
   }
 }
 /////////////////////////////////////////////////
@@ -4532,6 +4554,7 @@ boolean StartWeedMultiball(uint8_t level, uint8_t context) {
 }
 
 void Weedspinner() {
+  const uint8_t progressOwner = ProgressOwner();
   if (weedspsw == 0 && SimDigitalRead(spinnerSwitch) == LOW) {
     weedspsw = 1;
     if (multiball != 0) {
@@ -4546,8 +4569,8 @@ void Weedspinner() {
       // Az elso spinnerfordulat valasztja ki a GET HIGH agat. Az aktualis
       // WEED qualification elfogy, a spinner viszont a golyo/multiball
       // vegeig aktiv marad. Egy korabbi joint UFO-cashoutja nem veszik el.
-      if (weedQualified[player] == HIGH) {
-        weedQualified[player] = LOW;
+      if (weedQualified[progressOwner] == HIGH) {
+        weedQualified[progressOwner] = LOW;
         // A spinner elhasznalta a WEED-et. Egy magaban maradt joint nem
         // aktivalhatja az UFO-t; a teljes tier-logika dontse el az allapotot.
         ufosw = (CurrentUfoPartyTier() != UFO_PARTY_NONE) ? 1 : 0;
@@ -4560,12 +4583,11 @@ void Weedspinner() {
 
       // A 4 multiball-szint (weedm 0->1->2->3->4) kozos logikaja. Szintenkent
       // csak a mero-levonas, a pontszam es a hangok kulonboznek -> tablak.
-      const uint8_t owner = ProgressOwner();
-      int lvl = weedm[owner];
+      int lvl = weedm[progressOwner];
       if (lvl >= 0 && lvl <= 3) {
         static const int8_t         mbDecr[4]  = { 25, 15, 10, 8 };
-        weedmeter[owner] = weedmeter[owner] - mbDecr[lvl];
-        if (weedmeter[owner] <= 0) {
+        weedmeter[progressOwner] = weedmeter[progressOwner] - mbDecr[lvl];
+        if (weedmeter[progressOwner] <= 0) {
           StartWeedMultiball((uint8_t)lvl, WEED_MB_FROM_QUALIFICATION);
         }
       }
@@ -4632,12 +4654,12 @@ void Weedspinner() {
 
   // Weed-mero kijelzo: progressziv zold kitoltes a szinttel. A vilagitas
   // sorrendje: Acapulco(59), Michoakan(60), Thai(63), Labrador(62) - az elso
-  // weedm[player] darab zold, a tobbi szurke.
+  // weedm[progressOwner] darab zold, a tobbi szurke.
   static const uint8_t weedMeterLeds[4] = {
     LED_ACAPULCO, LED_MICHOAKAN, LED_THAI, LED_LABRADOR
   };
   for (uint8_t i = 0; i < 4; i++) {
-    leds[weedMeterLeds[i]] = (i < weedm[player]) ? CRGB::Green : CRGB::Gray;
+    leds[weedMeterLeds[i]] = (i < weedm[progressOwner]) ? CRGB::Green : CRGB::Gray;
   }
 
 
@@ -4649,7 +4671,7 @@ unsigned long weedMeterLastAttempt = 0;
 
 void weedmetersend() {
   if (player < 1 || player > 4) return;
-  weedMeterValue = (uint8_t)constrain(weedmeter[player], 0, 180);
+  weedMeterValue = (uint8_t)constrain(weedmeter[ProgressOwner()], 0, 180);
   weedMeterPending = HIGH;
   weedMeterAttempts = 0;
   weedMeterLastAttempt = millis() - 250UL; // az elso probalkozas rogton mehet
@@ -5094,6 +5116,7 @@ void UFOO() {
 ///  Inactive state
 ///
 void Chong_switch() {
+  const uint8_t owner = ProgressOwner();
   if (SimDigitalRead(chongSwitch) == LOW && chongoffsw == LOW) {
     chongoffsw = HIGH;
     chongoffswtimer = millis();
@@ -5110,31 +5133,31 @@ void Chong_switch() {
       CollectSw = LOW;
       chongLightActiveSw = LOW;
       cheechLightActiveSw = LOW;
-      cncCollectionLit[player] = LOW;
-      chongCollectives[player] += 1;
+      cncCollectionLit[owner] = LOW;
+      chongCollectives[owner] += 1;
       PlayBakedEffectOnce(7); // ChongCollect: egyszer
-      if (chongCollectives[player] == 1) {
+      if (chongCollectives[owner] == 1) {
           Serial.println("ChongC1");
           delay(20);
           Score(Scoring::COLLECTIBLE_POINTS[0], Scoring::COLLECTIBLE_BONUS[0]);
           wTrig.trackPlayPoly(TRK_COLLECT);
           wTrig.trackPlayPoly(TRK_WEEDPIPE);
       }
-      if (chongCollectives[player] == 2) {
+      if (chongCollectives[owner] == 2) {
           Serial.println("ChongC2");
           delay(20);
           Score(Scoring::COLLECTIBLE_POINTS[1], Scoring::COLLECTIBLE_BONUS[1]);
           wTrig.trackPlayPoly(TRK_COLLECT);
           wTrig.trackPlayPoly(TRK_COCKROACH);
       }
-      if (chongCollectives[player] == 3) {
+      if (chongCollectives[owner] == 3) {
           Serial.println("ChongC3");
           delay(20);
           Score(Scoring::COLLECTIBLE_POINTS[2], Scoring::COLLECTIBLE_BONUS[2]);
           wTrig.trackPlayPoly(TRK_COLLECT);
           wTrig.trackPlayPoly(TRK_PIPEWRENCH);
           PlayBakedEffectOnce(38); // Chong triple collectible celebration
-          chongCollectives[player] = 0;
+          chongCollectives[owner] = 0;
       }
     }
     else {
@@ -5174,6 +5197,7 @@ void Chong_switch() {
 
 
 void Cheech_switch() {
+    const uint8_t owner = ProgressOwner();
     /// 
     ///  Inactive state
     ///
@@ -5193,12 +5217,12 @@ void Cheech_switch() {
       // Aktiv collectionnel ne keveredjen a sima Cheech-talalat dumaja.
       chongLightActiveSw = LOW;
       cheechLightActiveSw = LOW;
-      cncCollectionLit[player] = LOW;
+      cncCollectionLit[owner] = LOW;
       CollectTimer = millis();
       CollectSw = 1;
-      cheechCollectives[player] += 1;
+      cheechCollectives[owner] += 1;
       PlayBakedEffectOnce(8); // CheechCollect: egyszer
-      if (cheechCollectives[player] == 1) {
+      if (cheechCollectives[owner] == 1) {
           Serial.println("CheechC1");
           delay(20);
           Score(Scoring::COLLECTIBLE_POINTS[0], Scoring::COLLECTIBLE_BONUS[0]);
@@ -5206,21 +5230,21 @@ void Cheech_switch() {
           wTrig.trackPlayPoly(TRK_CHAINWHEEL);
 
       }
-      if (cheechCollectives[player] == 2) {
+      if (cheechCollectives[owner] == 2) {
           Serial.println("CheechC2");
           delay(20);
           Score(Scoring::COLLECTIBLE_POINTS[1], Scoring::COLLECTIBLE_BONUS[1]);
           wTrig.trackPlayPoly(TRK_COLLECT);
           wTrig.trackPlayPoly(TRK_BIGJOINT);
       }
-      if (cheechCollectives[player] == 3) {
+      if (cheechCollectives[owner] == 3) {
           Serial.println("CheechC3");
           delay(20);
           Score(Scoring::COLLECTIBLE_POINTS[2], Scoring::COLLECTIBLE_BONUS[2]);
           wTrig.trackPlayPoly(TRK_COLLECT);
           wTrig.trackPlayPoly(TRK_LICENSEPLATE);
           PlayBakedEffectOnce(39); // Cheech triple collectible celebration
-          cheechCollectives[player] = 0;
+          cheechCollectives[owner] = 0;
 
       }
     }
@@ -5267,42 +5291,43 @@ void Cheech_switch() {
 /////////////////////////////////////////////////
 /////////////////////////////////////////////////
 void Collectives() {
-  if (cheechCollectives[player] == 0) {
+  const uint8_t owner = ProgressOwner();
+  if (cheechCollectives[owner] == 0) {
     leds[LED_CHEECH_WHEEL] = CRGB::Orange; // Cheech wheel
     leds[LED_CHEECH_CIGAR] = CRGB::Orange; // Cheech cigar
     leds[LED_MUF_DVR] = CRGB::Orange; // MUF dvr
   }
-  if (chongCollectives[player] == 0) {
+  if (chongCollectives[owner] == 0) {
     leds[LED_CHONG_PIPE] = CRGB::Orange; // Chong Pipe
     leds[LED_CHONG_ROACH] = CRGB::Orange; // Chong Cockroach
     leds[LED_CHONG_KEY] = CRGB::Orange; // Chong plunger key
   }
-  if (cheechCollectives[player] == 1) {
+  if (cheechCollectives[owner] == 1) {
     leds[LED_CHEECH_WHEEL] = CRGB::White; // Cheech wheel
     leds[LED_CHEECH_CIGAR] = CRGB::Orange; // Cheech cigar
     leds[LED_MUF_DVR] = CRGB::Orange; // MUF dvr
   }
-  if (chongCollectives[player] == 1) {
+  if (chongCollectives[owner] == 1) {
     leds[LED_CHONG_PIPE] = CRGB::White; // Chong Pipe
     leds[LED_CHONG_ROACH] = CRGB::Orange; // Chong Cockroach
     leds[LED_CHONG_KEY] = CRGB::Orange; // Chong plunger key
   }
-  if (cheechCollectives[player] == 2) {
+  if (cheechCollectives[owner] == 2) {
     leds[LED_CHEECH_WHEEL] = CRGB::White; // Cheech wheel
     leds[LED_CHEECH_CIGAR] = CRGB::White; // Cheech cigar
     leds[LED_MUF_DVR] = CRGB::Orange; // MUF dvr
   }
-  if (chongCollectives[player] == 2) {
+  if (chongCollectives[owner] == 2) {
     leds[LED_CHONG_PIPE] = CRGB::White; // Chong Pipe
     leds[LED_CHONG_ROACH] = CRGB::White; // Chong Cockroach
     leds[LED_CHONG_KEY] = CRGB::Orange; // Chong plunger key
   }
-  if (cheechCollectives[player] == 3) {
+  if (cheechCollectives[owner] == 3) {
     leds[LED_CHEECH_WHEEL] = CRGB::White; // Cheech wheel
     leds[LED_CHEECH_CIGAR] = CRGB::White; // Cheech cigar
     leds[LED_MUF_DVR] = CRGB::White; // MUF dvr
   }
-  if (chongCollectives[player] == 3) {
+  if (chongCollectives[owner] == 3) {
     leds[LED_CHONG_PIPE] = CRGB::White; // Chong Pipe
     leds[LED_CHONG_ROACH] = CRGB::White; // Chong Cockroach
     leds[LED_CHONG_KEY] = CRGB::White; // Chong plunger key
