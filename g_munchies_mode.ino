@@ -320,7 +320,7 @@ void MunchiesUpdate() {
       munchiesLight = MG_LIGHT_IDLE;
       munchiesStartContext = MUNCHIES_FROM_VUK;
       ufoshoot = 0;
-      ufosw = 0;
+      RestorePartyShotsForPlayer();
       ufoInactivesw = 1;
       ufoInactiveTimer = now;
       ufoanalog = sensor;

@@ -635,8 +635,9 @@ int ball2 = 0;
 int ball3 = 0;
 int ball4 = 0;
 int ball5 = 0;
-const uint32_t NORMAL_BALL_SAVE_MS_STANDARD = 15000UL;
+const uint32_t NORMAL_BALL_SAVE_MS_STANDARD = 10000UL;
 const uint32_t NORMAL_BALL_SAVE_MS_COOP = 5000UL;
+const uint32_t NORMAL_BALL_SAVE_MS_QUICK = 15000UL;
 const uint32_t MULTIBALL_BALL_SAVE_MS = 30000UL;
 uint32_t ballsavetime = NORMAL_BALL_SAVE_MS_STANDARD;
 int extraball = 0;
@@ -755,7 +756,8 @@ enum UfoPartyTier : uint8_t {
   UFO_PARTY_CASHOUT = 1,
   UFO_PARTY_SUPER_CASHOUT = 2,
   UFO_PARTY_FEATURE_WHEEL = 3,
-  UFO_PARTY_LOVE_PACK = 4
+  UFO_PARTY_LOVE_PACK = 4,
+  UFO_PARTY_QUICK_RANDOM = 5
 };
 uint8_t ufoAwardTier = UFO_PARTY_NONE;
 uint16_t ufoWheelSession = 0;
@@ -2747,6 +2749,7 @@ void StartBallSave(uint32_t durationMs) {
 
 uint32_t NormalBallSaveDurationMs() {
   if (runningGameMode == GAME_COOP) return NORMAL_BALL_SAVE_MS_COOP;
+  if (runningGameMode == GAME_QUICK) return NORMAL_BALL_SAVE_MS_QUICK;
   return NORMAL_BALL_SAVE_MS_STANDARD;
 }
 
@@ -2807,6 +2810,12 @@ uint8_t CurrentUfoPartyTier() {
   // kigyullad a WEED, az UFO Super Cashout lotteryt ad, de a jointot nem
   // fogyasztja el. Joint nelkul a WEED a sima Cashoutot nyitja.
   const uint8_t owner = ProgressOwner();
+  // Quickben az UFO mindig ad valamit. A WEED teljesitese ezt az egyszeru
+  // random jutalmat egyetlen alkalomra a mar meglevo Feature Wheelre emeli.
+  if (runningGameMode == GAME_QUICK) {
+    return (weedQualified[owner] == HIGH)
+             ? UFO_PARTY_FEATURE_WHEEL : UFO_PARTY_QUICK_RANDOM;
+  }
   if (jointStack[owner] >= 3) return UFO_PARTY_LOVE_PACK;
   if (jointStack[owner] == 2) return UFO_PARTY_FEATURE_WHEEL;
   if (jointStack[owner] == 1) {
@@ -2867,6 +2876,22 @@ void RestorePartyShotsForPlayer() {
 
 void ConsumeUfoPartyReward(uint8_t tier) {
   const uint8_t owner = ProgressOwner();
+  if (runningGameMode == GAME_QUICK && tier == UFO_PARTY_QUICK_RANDOM) {
+    // Az alap Quick-UFO korlatlanul ujra elerheto; nincs progression, amit
+    // el kellene fogyasztania.
+    ufosw = 1;
+    return;
+  }
+  if (runningGameMode == GAME_QUICK && tier == UFO_PARTY_FEATURE_WHEEL) {
+    // Quickben ugyanaz a WEED egyszerre gyujtja ki a Wheelt es a gyors
+    // spinner-lepcso kezdetet. A Wheel elfogyasztja a sajat jogosultsagat,
+    // de a spinner a golyo vegeig/multiball-inditasig aktiv marad.
+    weedQualified[owner] = LOW;
+    ufosw = 1;
+    spinnersw = 1;
+    SendPartyState();
+    return;
+  }
   weedQualified[owner] = LOW;
   spinnersw = 0;
   // Csak a Feature Wheel es a Love Pack fogyasztja el a jointokat. A Super
@@ -2969,6 +2994,31 @@ int DrawStandardUfoLottery(uint8_t tier) {
     } while (result == 10 && ExtraBallLotteryBlocked());
   }
 
+  return result;
+}
+
+int DrawQuickUfoLottery(uint8_t tier) {
+  if (tier == UFO_PARTY_FEATURE_WHEEL) {
+    return DrawStandardUfoLottery(tier);
+  }
+
+  // A klasszikus egyszeru UFO-lotto partybarat valtozata. Nincs pontlopas;
+  // a latvanyos feature-ok (Hurry, Munchies, Space Coke) kozvetlenul is
+  // kijöhetnek. Az EB-kimeneteket ujrahuzzuk, ha mar nem adhatok ki.
+  int result;
+  do {
+    result = random(1, 10); // 1..9
+    if (result >= 8) result++; // a 8-as pontlopast atugorva: 1..7,9,10
+  } while ((result == 1 || result == 10) && ExtraBallLotteryBlocked());
+  return result;
+}
+
+int DrawUfoRewardForMode(uint8_t tier) {
+  // Csak a huzasi policy ter el; a prezentacio es a jutalom vegrehajtasa a
+  // bizonyitott kozos UFO state machine-ben marad.
+  int result = (runningGameMode == GAME_QUICK)
+                 ? DrawQuickUfoLottery(tier)
+                 : DrawStandardUfoLottery(tier);
 #ifdef SIM_MODE
   if (simForceLottery > 0) {
     int forced = simForceLottery;
@@ -2982,14 +3032,6 @@ int DrawStandardUfoLottery(uint8_t tier) {
   }
 #endif
   return result;
-}
-
-int DrawUfoRewardForMode(uint8_t tier) {
-  // A reward kivalasztasa mar kulon policy-pont, a prezentacio es a jutalom
-  // vegrehajtasa tovabbra is a kozos UFO state machine-ben marad. Amig egy
-  // uj ruleset nincs aktivalva, minden mod a bizonyitott Standard tablat
-  // hasznalja; az ismeretlen ertek is biztonsagosan ide esik vissza.
-  return DrawStandardUfoLottery(tier);
 }
 
 const char* UfoWheelResultName() {
@@ -3088,7 +3130,8 @@ void BeginUfoLotteryPresentation(boolean playLegacyVideo) {
   // hatterzenet. A Feature Wheel sajat (TRK_UFO_WHEEL_BG), a Love Pack pedig
   // SpaceCoke hangot kap, ezert azokra nem inditjuk el.
   if (ufoAwardTier == UFO_PARTY_CASHOUT ||
-      ufoAwardTier == UFO_PARTY_SUPER_CASHOUT) {
+      ufoAwardTier == UFO_PARTY_SUPER_CASHOUT ||
+      ufoAwardTier == UFO_PARTY_QUICK_RANDOM) {
     wTrig.trackPlayPoly(TRK_HAPPYUFO);
   }
   ApplyUfoLotteryEntryAward(playLegacyVideo);
@@ -3699,9 +3742,8 @@ void Loopshoot() {
 /////////////////////////////////////////////////
 
 void OnWeedCompleted() {
-  // Mode-policy belepesi pont. A selector aktivalasaig kizarolag a jelenlegi
-  // Standard viselkedest hajtja vegre; a Quick kesobb itt valaszthat mas
-  // rewardot anelkul, hogy a negy fizikai target kezeleset lemasolnank.
+  // Mode-policy belepesi pont: ugyanaz a negy fizikai target, Quickben viszont
+  // a bonyolult joint-lepcso helyett azonnal Feature Wheelt keszit elo.
   weedtimer = millis();
   weedoff = 1;
   weedQualified[ProgressOwner()] = HIGH;
@@ -3714,17 +3756,21 @@ void OnWeedCompleted() {
     wTrig.trackPlayPoly(TRK_MULTIBALL_EXPLOSION); // 0129: egyszeri blast
     wTrig.trackPlayPoly(TRK_WEEDFULL); // 0072: Weed Full kiegeszito hang
     const uint8_t owner = ProgressOwner();
-    boolean canChoosePartyShot =
+    boolean quickWheelReady = (runningGameMode == GAME_QUICK);
+    boolean canChoosePartyShot = quickWheelReady ||
       (beerCredits[owner] > 0 && jointStack[owner] < 3);
-    PlaySpeechRange(canChoosePartyShot
-                      ? TRK_VO_UFO_WEED_CHOOSE_A
-                      : TRK_VO_UFO_WEED_NEED_BEER_A);
+    PlaySpeechRange(quickWheelReady
+                      ? TRK_VO_UFO_FEATURE_WHEEL_A
+                      : (canChoosePartyShot
+                           ? TRK_VO_UFO_WEED_CHOOSE_A
+                           : TRK_VO_UFO_WEED_NEED_BEER_A));
     Serial.println("Weed");
     if (hurryUp == LOW) {
       ufosw = 1;
       spinnersw = 1;
     }
-    SendPartyEvent(canChoosePartyShot ? "CHOOSE" : "NEED_BEER");
+    SendPartyEvent(quickWheelReady ? "QUICK_WHEEL_READY"
+                                   : (canChoosePartyShot ? "CHOOSE" : "NEED_BEER"));
   }
   SendPartyState();
   delay(10);
@@ -4562,6 +4608,17 @@ boolean StartWeedMultiball(uint8_t level, uint8_t context) {
   return true;
 }
 
+uint8_t SpinnerMeterDecrement(uint8_t level) {
+  if (level > 3) return 0;
+  // Balancing-parameterek. 180-as teljes meron Quickben rendre 4/5/6/8,
+  // Standard/Co-opban 8/12/18/23 fordulat kell a 2/3/4/5-ball modokhoz.
+  static const uint8_t standardDecrement[4] PROGMEM = { 25, 15, 10, 8 };
+  static const uint8_t quickDecrement[4] PROGMEM = { 45, 36, 30, 25 };
+  const uint8_t* table = (runningGameMode == GAME_QUICK)
+                           ? quickDecrement : standardDecrement;
+  return pgm_read_byte(table + level);
+}
+
 void Weedspinner() {
   const uint8_t progressOwner = ProgressOwner();
   if (weedspsw == 0 && SimDigitalRead(spinnerSwitch) == LOW) {
@@ -4579,7 +4636,9 @@ void Weedspinner() {
       // WEED qualification elfogy, a spinner viszont a golyo/multiball
       // vegeig aktiv marad. Egy korabbi joint UFO-cashoutja nem veszik el.
       if (weedQualified[progressOwner] == HIGH) {
-        weedQualified[progressOwner] = LOW;
+        if (runningGameMode != GAME_QUICK) {
+          weedQualified[progressOwner] = LOW;
+        }
         // A spinner elhasznalta a WEED-et. Egy magaban maradt joint nem
         // aktivalhatja az UFO-t; a teljes tier-logika dontse el az allapotot.
         ufosw = (CurrentUfoPartyTier() != UFO_PARTY_NONE) ? 1 : 0;
@@ -4594,8 +4653,8 @@ void Weedspinner() {
       // csak a mero-levonas, a pontszam es a hangok kulonboznek -> tablak.
       int lvl = weedm[progressOwner];
       if (lvl >= 0 && lvl <= 3) {
-        static const int8_t         mbDecr[4]  = { 25, 15, 10, 8 };
-        weedmeter[progressOwner] = weedmeter[progressOwner] - mbDecr[lvl];
+        weedmeter[progressOwner] = weedmeter[progressOwner] -
+                                   SpinnerMeterDecrement((uint8_t)lvl);
         if (weedmeter[progressOwner] <= 0) {
           StartWeedMultiball((uint8_t)lvl, WEED_MB_FROM_QUALIFICATION);
         }
@@ -4904,6 +4963,7 @@ void UFOO() {
       if (ufoAwardTier == UFO_PARTY_SUPER_CASHOUT) SendPartyEvent("SUPER_CASHOUT");
       if (ufoAwardTier == UFO_PARTY_FEATURE_WHEEL) SendPartyEvent("FEATURE_WHEEL");
       if (ufoAwardTier == UFO_PARTY_LOVE_PACK) SendPartyEvent("SPACE_COKE");
+      if (ufoAwardTier == UFO_PARTY_QUICK_RANDOM) SendPartyEvent("QUICK_UFO");
       if (ufoAwardTier == UFO_PARTY_FEATURE_WHEEL) {
         StartUfoWheelPresentation();
         return;
@@ -5040,7 +5100,7 @@ void UFOO() {
         ufoshoot = 0;
 
         ResumeUfoLotteryAudio();
-        ufosw = 0;
+        RestorePartyShotsForPlayer();
       }
     }
   }
@@ -5077,6 +5137,10 @@ void UFOO() {
         leds[LED_UFO_ARROW_1] = CRGB::Cyan;
         leds[LED_UFO_ARROW_2] = CRGB::White;
       }
+      else if (tier == UFO_PARTY_QUICK_RANDOM) {
+        leds[LED_UFO_ARROW_1] = CRGB::Yellow;
+        leds[LED_UFO_ARROW_2] = CRGB::Orange;
+      }
     }
     if (ledState == LOW) {
       if (tier == UFO_PARTY_CASHOUT) {
@@ -5094,6 +5158,10 @@ void UFOO() {
       else if (tier == UFO_PARTY_LOVE_PACK) {
         leds[LED_UFO_ARROW_1] = CRGB::White;
         leds[LED_UFO_ARROW_2] = CRGB::Cyan;
+      }
+      else if (tier == UFO_PARTY_QUICK_RANDOM) {
+        leds[LED_UFO_ARROW_1] = CRGB::Orange;
+        leds[LED_UFO_ARROW_2] = CRGB::Yellow;
       }
     }
   }
