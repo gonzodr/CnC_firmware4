@@ -24,6 +24,35 @@ class GameModeSelectorTests(unittest.TestCase):
         self.assertIn("wTrig.isTrackPlaying(TRK_MUS_MODE_SELECT)", SOURCE)
         self.assertIn("modeSelectGrooveEnded", SOURCE)
 
+    def test_start_plays_mode_confirmation_and_matching_random_voice(self):
+        self.assertIn("TRK_MODE_SELECTED       68", SOURCE)
+        self.assertIn("MODE_SELECT_CONFIRM_MS = 1300UL", SOURCE)
+        self.assertIn('Serial.print(F("GAME_MODE_CONFIRM,"));', SOURCE)
+        self.assertIn("wTrig.trackPlayPoly(TRK_MODE_SELECTED);", SOURCE)
+        for track in (
+            "TRK_CHEECH_MODE_STANDARD", "TRK_CHEECH_MODE_COOP",
+            "TRK_CHEECH_MODE_QUICK", "TRK_CHEECH_MODE_MULTIB",
+            "TRK_CHONG_MODE_STANDARD", "TRK_CHONG_MODE_COOP",
+            "TRK_CHONG_MODE_QUICK", "TRK_CHONG_MODE_MULTIB",
+        ):
+            self.assertIn(track, SOURCE)
+        self.assertIn("const boolean useChong = random(0, 2) == 1;", SOURCE)
+        munchies_case = SOURCE.split("case GAME_MUNCHIES:", 1)[1].split(
+            "default:", 1
+        )[0]
+        self.assertNotIn("voiceTrack =", munchies_case)
+        select_start = SOURCE.split(
+            "// 2. start: jatek inditasa a kivalasztott jatekosszammal", 1
+        )[1].split("// A groove egyszer fut le.", 1)[0]
+        ordered_calls = (
+            "SendGameModeConfirm();",
+            "PlaySelectedGameModeConfirmation();",
+            "delay(MODE_SELECT_CONFIRM_MS);",
+            "SendGameStart();",
+        )
+        positions = [select_start.index(call) for call in ordered_calls]
+        self.assertEqual(positions, sorted(positions))
+
     def test_one_player_mask_excludes_only_coop(self):
         body = re.search(
             r"uint8_t AvailableGameModeMask\(uint8_t playerCount\) \{(.*?)\n\}",

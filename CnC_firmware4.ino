@@ -157,6 +157,7 @@ int simForceLottery = 0; // cinkelt UFO-lotto: 7=SpaceCoke, 8=pontlopas, 9=minig
 #define TRK_MUS_LABRADOR       64
 #define TRK_MUS_MODE_SELECT     66  // 0066_mus_Mode_select_groove.wav
 #define TRK_MODE_SELECT_WOOSH   67  // 0067_fx_woosh.wav
+#define TRK_MODE_SELECTED       68  // 0068_fx_select_mode.wav
 #define TRK_WEEDFULL           72
 #define TRK_JACKPOT            73
 #define TRK_DANGER             86
@@ -229,6 +230,14 @@ int simForceLottery = 0; // cinkelt UFO-lotto: 7=SpaceCoke, 8=pontlopas, 9=minig
 #define TRK_VO_CHONG_HURRY_15000       326
 #define TRK_VO_CHONG_HURRY_25000       327
 #define TRK_VO_CHONG_HURRY_30000       328
+#define TRK_CHEECH_MODE_STANDARD       329
+#define TRK_CHEECH_MODE_COOP           330
+#define TRK_CHEECH_MODE_QUICK          331
+#define TRK_CHEECH_MODE_MULTIB         332
+#define TRK_CHONG_MODE_STANDARD        333
+#define TRK_CHONG_MODE_COOP            334
+#define TRK_CHONG_MODE_QUICK           335
+#define TRK_CHONG_MODE_MULTIB          336
 
 // Multiball-inditasok: modonkent harom egymas utani A/B/C valtozat.
 #define TRK_VO_MULTIBALL_ACAPULCO_A   293
@@ -957,6 +966,7 @@ unsigned long selTimeoutTimer = 0;
 boolean modeSelectGrooveSeenPlaying = LOW;
 const unsigned long MODE_SELECT_AUDIO_GRACE_MS = 1000UL;
 const unsigned long MODE_SELECT_FALLBACK_TIMEOUT_MS = 180000UL;
+const unsigned long MODE_SELECT_CONFIRM_MS = 1300UL;
 unsigned long selLeftTimer = 0;
 unsigned long selRightTimer = 0;
 unsigned long selModeLastSendAt = 0;
@@ -2290,6 +2300,40 @@ void SendGameStart() {
   Serial.println(numofplayers);
 }
 
+void PlaySelectedGameModeConfirmation() {
+  wTrig.trackStop(TRK_MUS_MODE_SELECT);
+  wTrig.trackPlayPoly(TRK_MODE_SELECTED);
+
+  // Munchieshoz szandekosan nincs karakterduma. A tobbi modnal minden
+  // inditaskor veletlenszeruen Cheech vagy Chong sajat mondata szolal meg.
+  uint16_t voiceTrack = 0;
+  const boolean useChong = random(0, 2) == 1;
+  switch (selectedGameMode) {
+    case GAME_STANDARD:
+      voiceTrack = useChong ? TRK_CHONG_MODE_STANDARD : TRK_CHEECH_MODE_STANDARD;
+      break;
+    case GAME_COOP:
+      voiceTrack = useChong ? TRK_CHONG_MODE_COOP : TRK_CHEECH_MODE_COOP;
+      break;
+    case GAME_QUICK:
+      voiceTrack = useChong ? TRK_CHONG_MODE_QUICK : TRK_CHEECH_MODE_QUICK;
+      break;
+    case GAME_MULTIBALL_MAYHEM:
+      voiceTrack = useChong ? TRK_CHONG_MODE_MULTIB : TRK_CHEECH_MODE_MULTIB;
+      break;
+    case GAME_MUNCHIES:
+    default:
+      break;
+  }
+  if (voiceTrack != 0) wTrig.trackPlayPoly(voiceTrack);
+}
+
+void SendGameModeConfirm() {
+  NormalizeSelectedGameMode();
+  Serial.print(F("GAME_MODE_CONFIRM,"));
+  Serial.println((uint8_t)selectedGameMode);
+}
+
 void intmMode() {
   if (intmon == 4) {
     ServiceAbortUpdate();
@@ -2430,7 +2474,11 @@ void intmMode() {
 
     // 2. start: jatek inditasa a kivalasztott jatekosszammal
     if (selArmSw == HIGH && SimDigitalRead(startButton) == LOW) {
-      wTrig.trackStop(TRK_MUS_MODE_SELECT);
+      SendGameModeConfirm();
+      PlaySelectedGameModeConfirmation();
+      // A GUI ezalatt a kivalasztott mode-artot finoman meguti, majd
+      // kifakultja. A kesleltetes utan indul csak a tenyleges jatek.
+      delay(MODE_SELECT_CONFIRM_MS);
       wTrig.trackPlayPoly(TRK_WEED);
       SendGameStart();
       Serial.println("Zero");
