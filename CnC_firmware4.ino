@@ -966,7 +966,10 @@ unsigned long selTimeoutTimer = 0;
 boolean modeSelectGrooveSeenPlaying = LOW;
 const unsigned long MODE_SELECT_AUDIO_GRACE_MS = 1000UL;
 const unsigned long MODE_SELECT_FALLBACK_TIMEOUT_MS = 180000UL;
-const unsigned long MODE_SELECT_CONFIRM_MS = 1300UL;
+const unsigned long MODE_SELECT_CONFIRM_HOLD_MS = 1600UL;
+const unsigned long MODE_SELECT_CONFIRM_FADE_MS = 650UL;
+const unsigned long MODE_SELECT_CONFIRM_MS =
+    MODE_SELECT_CONFIRM_HOLD_MS + MODE_SELECT_CONFIRM_FADE_MS;
 unsigned long selLeftTimer = 0;
 unsigned long selRightTimer = 0;
 unsigned long selModeLastSendAt = 0;
@@ -2476,8 +2479,9 @@ void intmMode() {
     if (selArmSw == HIGH && SimDigitalRead(startButton) == LOW) {
       SendGameModeConfirm();
       PlaySelectedGameModeConfirmation();
-      // A GUI ezalatt a kivalasztott mode-artot finoman meguti, majd
-      // kifakultja. A kesleltetes utan indul csak a tenyleges jatek.
+      // A GUI ezalatt a kivalasztott mode-artot finoman meguti, 1.6
+      // masodpercig nyugalomban tartja, majd 0.65 masodperc alatt kifakitja.
+      // A teljes kesleltetes utan indul csak a tenyleges jatek.
       delay(MODE_SELECT_CONFIRM_MS);
       wTrig.trackPlayPoly(TRK_WEED);
       SendGameStart();

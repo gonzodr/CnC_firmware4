@@ -26,7 +26,12 @@ class GameModeSelectorTests(unittest.TestCase):
 
     def test_start_plays_mode_confirmation_and_matching_random_voice(self):
         self.assertIn("TRK_MODE_SELECTED       68", SOURCE)
-        self.assertIn("MODE_SELECT_CONFIRM_MS = 1300UL", SOURCE)
+        self.assertIn("MODE_SELECT_CONFIRM_HOLD_MS = 1600UL", SOURCE)
+        self.assertIn("MODE_SELECT_CONFIRM_FADE_MS = 650UL", SOURCE)
+        self.assertIn(
+            "MODE_SELECT_CONFIRM_HOLD_MS + MODE_SELECT_CONFIRM_FADE_MS",
+            SOURCE,
+        )
         self.assertIn('Serial.print(F("GAME_MODE_CONFIRM,"));', SOURCE)
         self.assertIn("wTrig.trackPlayPoly(TRK_MODE_SELECTED);", SOURCE)
         for track in (
