@@ -625,10 +625,43 @@ boolean BallReadState = LOW;
 // a kuszob ala, es egyetlen ilyen minta korabban azonnal "golyo lement"-et
 // jelentett - akkor is, ha a golyo eppen az UFO-ban ult. Ezert tobb egymas
 // utani meres ES egy minimalis ido is kell hozza.
-const uint8_t BALL_DRAIN_CONFIRM_READS = 6;
-const unsigned long BALL_DRAIN_CONFIRM_MS = 120UL;
+const uint8_t BALL_DRAIN_CONFIRM_READS = 8;
+const unsigned long BALL_DRAIN_CONFIRM_MS = 400UL;
+const unsigned long BALL_DRAIN_ARM_MS = 250UL;
 uint8_t bisFiveReads = 0;
 unsigned long bisFiveSince = 0;
+unsigned long bisBelowFiveSince = 0;
+boolean ballDrainArmed = LOW;
+// A tartekercs megloki az osszes bent ulo golyot. Az impulzus utan az
+// infrak atmenetileg ujra 5-ot is mutathatnak, mikozben a kiadott golyo mar
+// a palyan van. Ilyenkor a virtualis BIS-- ervenyes, es a merest csak a
+// mechanika rendezodesi ideje utan kapcsoljuk vissza.
+const unsigned long BALL_TROUGH_SETTLE_MS = 1200UL;
+boolean troughMeasurementInhibited = LOW;
+unsigned long troughMeasurementInhibitAt = 0;
+// A GUI 8 masodperces ball-end summaryja mondja meg, mikor valthatunk vissza
+// SCORE-ra es mikor johet a kovetkezo golyo. Regi/leszakadt GUI eseten a
+// timeout megakadalyozza, hogy a gep vegleg golyo nelkul maradjon.
+boolean summaryWaitActive = LOW;
+unsigned long summaryWaitStartedAt = 0;
+const unsigned long SUMMARY_WAIT_TIMEOUT_MS = 15000UL;
+uint16_t summarySession = 0;
+boolean nextBallIsExtra = LOW;
+// Szenzoronkenti Schmitt-trigger + idobeli megerosites. A nyers ADC-erteket
+// elobb a 7 mintas median szuri (h_analog_test.ino), majd csak akkor valtunk
+// fizikai golyoallapotot, ha az uj oldal legalabb 4 meresen es 100 ms-on at
+// stabil. Az 500 mintas blokkolo atlag helyett ez a tekercszajt is kiszuri,
+// mikozben a flippergombok lekerdezese folyamatos marad.
+const uint16_t TROUGH_SENSOR_HYSTERESIS = 12U;
+const uint8_t TROUGH_SENSOR_CONFIRM_READS = 4;
+const unsigned long TROUGH_SENSOR_CONFIRM_MS = 100UL;
+const unsigned long TROUGH_SENSOR_MAX_SAMPLE_GAP_MS = 150UL;
+boolean troughSensorInitialized[5] = { LOW, LOW, LOW, LOW, LOW };
+boolean troughSensorState[5] = { LOW, LOW, LOW, LOW, LOW };
+boolean troughSensorCandidate[5] = { LOW, LOW, LOW, LOW, LOW };
+uint8_t troughSensorCandidateReads[5] = { 0, 0, 0, 0, 0 };
+unsigned long troughSensorCandidateSince[5] = { 0, 0, 0, 0, 0 };
+unsigned long troughSensorLastSampleAt[5] = { 0, 0, 0, 0, 0 };
 boolean ballHandlerSkip = 0;
 boolean shoot = LOW;
 boolean aftermulti = LOW;
@@ -759,6 +792,9 @@ int ufoCoil = 37; // output ufo
 boolean ufoInactivesw = 0;
 boolean ufoEjectSaveStarted = LOW;
 boolean ufoRejectSirenStarted = LOW;
+boolean ufoCoilPulseActive = LOW;
+unsigned long ufoCoilPulseStartedAt = 0;
+const unsigned long UFO_COIL_PULSE_MS = 50UL;
 // Integers
 int ufoanalog = 0;
 int ufoMinus = 0; // pontlopasnal (lottery 8): a kirabolt jatekos sorszama
@@ -1255,8 +1291,105 @@ void loop() {
 ///////////////////////////////////
 ///////////////////////////////////
 
+void ResetBallDrainQualification() {
+  bisFiveReads = 0;
+  bisFiveSince = 0;
+  bisBelowFiveSince = 0;
+  ballDrainArmed = LOW;
+}
+
+void ResetTroughSensorFilters() {
+  for (uint8_t i = 0; i < 5; i++) {
+    troughSensorInitialized[i] = LOW;
+    troughSensorCandidateReads[i] = 0;
+    troughSensorCandidateSince[i] = 0;
+    troughSensorLastSampleAt[i] = 0;
+  }
+}
+
+boolean FilterTroughPresence(uint8_t index, int value, unsigned long now) {
+  const uint16_t threshold = analogThreshold[index];
+  if (troughSensorInitialized[index] == LOW) {
+    troughSensorInitialized[index] = HIGH;
+    troughSensorState[index] = (value < threshold) ? HIGH : LOW;
+    troughSensorLastSampleAt[index] = now;
+    return troughSensorState[index];
+  }
+
+  // Hosszu mintaveteli szunet utan egy regi jelolt allapotot ne fogadjunk el
+  // folytatasnak. Ez a BallReadState szuneteit is biztonsagosan kezeli.
+  if (now - troughSensorLastSampleAt[index] > TROUGH_SENSOR_MAX_SAMPLE_GAP_MS) {
+    troughSensorCandidateReads[index] = 0;
+    troughSensorCandidateSince[index] = 0;
+  }
+  troughSensorLastSampleAt[index] = now;
+
+  const uint16_t lower = (threshold > TROUGH_SENSOR_HYSTERESIS) ?
+                         threshold - TROUGH_SENSOR_HYSTERESIS : 0;
+  const uint16_t upper = (threshold + TROUGH_SENSOR_HYSTERESIS < 1023U) ?
+                         threshold + TROUGH_SENSOR_HYSTERESIS : 1023U;
+  boolean requested = troughSensorState[index];
+  if (troughSensorState[index] == HIGH && value >= upper) requested = LOW;
+  if (troughSensorState[index] == LOW && value <= lower) requested = HIGH;
+
+  if (requested == troughSensorState[index]) {
+    troughSensorCandidateReads[index] = 0;
+    troughSensorCandidateSince[index] = 0;
+    return troughSensorState[index];
+  }
+
+  if (troughSensorCandidateReads[index] == 0 ||
+      troughSensorCandidate[index] != requested) {
+    troughSensorCandidate[index] = requested;
+    troughSensorCandidateReads[index] = 1;
+    troughSensorCandidateSince[index] = now;
+    return troughSensorState[index];
+  }
+
+  if (troughSensorCandidateReads[index] < 255) {
+    troughSensorCandidateReads[index]++;
+  }
+  if (troughSensorCandidateReads[index] >= TROUGH_SENSOR_CONFIRM_READS &&
+      now - troughSensorCandidateSince[index] >= TROUGH_SENSOR_CONFIRM_MS) {
+    troughSensorState[index] = requested;
+    troughSensorCandidateReads[index] = 0;
+    troughSensorCandidateSince[index] = 0;
+  }
+  return troughSensorState[index];
+}
+
+// A tarbol kiadott golyot azonnal levonjuk. A kovetkezo 1,2 masodpercben a
+// tar infrainak mozgasat nem vesszuk figyelembe; ezalatt a fizikai golyok
+// visszagurulhatnak es ujrarendezodhetnek a sorban.
+boolean BeginTroughFeed() {
+  if (shoot != 0 || BIS <= 0) return false;
+  BIS--;
+  troughMeasurementInhibited = HIGH;
+  troughMeasurementInhibitAt = millis();
+  shoottimer = troughMeasurementInhibitAt;
+  shoottimer2 = troughMeasurementInhibitAt;
+  shoot = 1;
+  return true;
+}
+
+boolean BallDrainTemporarilyBlocked() {
+  // A teljes tar nem lehet drain-bizonyitek, ha biztosan tudjuk, hogy egy
+  // golyo mashol van: eppen adagoljuk, a kilovosavban ul vagy az UFO tartja.
+  return troughMeasurementInhibited == HIGH || shoot != 0 || kick != 0 ||
+         SimDigitalRead(shooterLaneSwitch) == LOW || ufoshoot != 0 ||
+         ufoDetectStartedAt != 0 || ufoWheelWaiting == HIGH ||
+         MunchiesOwnsGameLoop();
+}
+
 void Ballhandler() {
    boolean ballSaveFeedStarted = LOW;
+   if (summaryWaitActive == HIGH &&
+       millis() - summaryWaitStartedAt >= SUMMARY_WAIT_TIMEOUT_MS) {
+     summaryWaitActive = LOW;
+     summaryWaitStartedAt = 0;
+     Serial.print(F("SUMMARY_TIMEOUT,"));
+     Serial.println(summarySession);
+   }
    if(shoot==0){
     MIV(LOW); // Measure how many ball in the stack
    }
@@ -1265,15 +1398,18 @@ void Ballhandler() {
     //// Firstball
     ////////////////
 
-    if (firstplay == HIGH && shoot == 0 && BIS == 5) {
+    if (firstplay == HIGH && summaryWaitActive == LOW && shoot == 0 && BIS == 5) {
       if (BIS + BIP > 5) {
-        BIS = BIS -1;
-        shoottimer = millis();
-        shoottimer2 = millis();
-        shoot = 1;
-        // Az elso golyo a klasszikus "yeah man" hangot kapja; a masodik es
-        // harmadik normal golyo a kulon ball-launch A/B/C csomagbol valaszt.
-        if (ball == 1) {
+        if (!BeginTroughFeed()) return;
+        if (nextBallIsExtra == HIGH) {
+          nextBallIsExtra = LOW;
+          // Az Extra Ball fix, felismerheto inditohangja csak a tenyleges
+          // kiadaskor induljon, ne a summary kepernyo alatt.
+          wTrig.trackPlaySolo(TRK_VO_CHONG_EXTRA_BALL_A);
+        }
+        // Az elso normal golyo a klasszikus "yeah man" hangot kapja; a
+        // masodik es harmadik a kulon ball-launch A/B/C csomagbol valaszt.
+        else if (ball == 1) {
           wTrig.trackPlayPoly(TRK_CHEECHYEAH);
         }
         else {
@@ -1291,26 +1427,22 @@ void Ballhandler() {
       MIV(HIGH);
       if (BIP != 5) {
         if (BIS + BIP > 5) {
-          BIS = BIS - 1;
-          shoottimer = millis();
-          shoottimer2 = millis();
-          shoot = 1;
-          ballSaveFeedStarted = HIGH;
-          TriggerHurryHit(HURRY_ZONE_BALLSAVE);
-          if (firstplay == LOW) {
-            startmus = LOW;
+          if (BeginTroughFeed()) {
+            ballSaveFeedStarted = HIGH;
+            TriggerHurryHit(HURRY_ZONE_BALLSAVE);
+            if (firstplay == LOW) {
+              startmus = LOW;
+            }
           }
         }
         if (sidelaneBallsaverSw == HIGH && BIS != 0) {
           sidelaneBallsaverSw = LOW;
-          BIS = BIS - 1;
-          shoottimer = millis();
-          shoottimer2 = millis();
-          shoot = 1;
-          ballSaveFeedStarted = HIGH;
-          TriggerHurryHit(HURRY_ZONE_BALLSAVE);
-          if (firstplay == LOW) {
-            startmus = LOW;
+          if (BeginTroughFeed()) {
+            ballSaveFeedStarted = HIGH;
+            TriggerHurryHit(HURRY_ZONE_BALLSAVE);
+            if (firstplay == LOW) {
+              startmus = LOW;
+            }
           }
         }
       }
@@ -1319,11 +1451,7 @@ void Ballhandler() {
       // atveve, a forditott idozites-feltetel javitasaval
       if (BIP == 5) {
         if (BIS + BIP > 5) {
-          if (BIS > 1) {
-            BIS = BIS - 1;
-            shoottimer = millis();
-            shoottimer2 = millis();
-            shoot = 1;
+          if (BIS > 1 && BeginTroughFeed()) {
             TriggerHurryHit(HURRY_ZONE_BALLSAVE);
             if (firstplay == LOW) {
               startmus = LOW;
@@ -1336,11 +1464,7 @@ void Ballhandler() {
         }
         if (sidelaneBallsaverSw == HIGH && BIS != 0) {
           sidelaneBallsaverSw = LOW;
-          if (BIS > 1) {
-            BIS = BIS - 1;
-            shoottimer = millis();
-            shoottimer2 = millis();
-            shoot = 1;
+          if (BIS > 1 && BeginTroughFeed()) {
             TriggerHurryHit(HURRY_ZONE_BALLSAVE);
             if (firstplay == LOW) {
               startmus = LOW;
@@ -1352,13 +1476,11 @@ void Ballhandler() {
           }
         }
         if (maxBallSw == HIGH && millis() - maxBallSwTimer > 1000) {
-          BIS = BIS - 1;
-          shoottimer = millis();
-          shoottimer2 = millis();
-          shoot = 1;
-          TriggerHurryHit(HURRY_ZONE_BALLSAVE);
-          if (firstplay == LOW) {
-            startmus = LOW;
+          if (BeginTroughFeed()) {
+            TriggerHurryHit(HURRY_ZONE_BALLSAVE);
+            if (firstplay == LOW) {
+              startmus = LOW;
+            }
           }
           maxBallSw = LOW;
         }
@@ -1376,7 +1498,12 @@ void Ballhandler() {
 
     if (!MayhemOwnsGameLifecycle() && ballsaversw == LOW && shoot == 0 && firstplay == LOW) {
       if (BIS == 5 && bisFiveReads >= BALL_DRAIN_CONFIRM_READS &&
-          millis() - bisFiveSince >= BALL_DRAIN_CONFIRM_MS) {
+          millis() - bisFiveSince >= BALL_DRAIN_CONFIRM_MS &&
+          ballDrainArmed == HIGH) {
+      // A drain elfogadasa lezarta az elozo adagolast/golyot. Az uj golyo
+      // csak egy friss, tarbol-kilepett (<5) allapot utan lehessen drain.
+      troughMeasurementInhibited = LOW;
+      ResetBallDrainQualification();
       digitalWrite(leftFlipperBat, LOW);
       digitalWrite(rightFlipperBat, LOW);
         wTrig.stopAllTracks();
@@ -1392,11 +1519,15 @@ void Ballhandler() {
           wTrig.trackPlayPoly(TRK_MISSU);
         }
         else {
-          Serial.println("Next");
+          summaryWaitActive = HIGH;
+          summaryWaitStartedAt = millis();
+          summarySession++;
+          if (summarySession == 0) summarySession = 1;
+          Serial.print(F("Next,"));
+          Serial.println(summarySession);
           delay(20);
           Serial.flush();
           wTrig.trackPlaySolo(TRK_LARDASS);
-          delay(4500);
         }
         shoottimer = millis();
         shoottimer2 = millis();
@@ -1477,9 +1608,9 @@ void Ballhandler() {
         }
         else {
           extraball = extraball - 1;
-          shoot = 1;
-          // Az Extra Ball kovetkezo golyojanak fix, felismerheto inditohangja.
-          wTrig.trackPlaySolo(TRK_VO_CHONG_EXTRA_BALL_A);
+          // A tenyleges kiadast es az Extra Ball hangjat is a GUI
+          // SUMMARY_DONE valasza utan a kozos firstplay ag vegzi.
+          nextBallIsExtra = HIGH;
           startmus = HIGH;
           firstplay = HIGH;
         }
@@ -1590,68 +1721,105 @@ void Ballhandler() {
 ///////////////////////////////////
 void MIV(boolean m) {
   Blinktimer();
+  if (troughMeasurementInhibited == HIGH) {
+    if (millis() - troughMeasurementInhibitAt < BALL_TROUGH_SETTLE_MS) {
+      return;
+    }
+    troughMeasurementInhibited = LOW;
+    // A fizikai golyok mar elrendezodtek; a virtualis BIS-- utan ne a
+    // kiadas elotti, tele tar allapotabol induljon a debounce.
+    ResetTroughSensorFilters();
+  }
   if (BallReadState == HIGH || m == HIGH) {
-    ball1 = SimAnalogRead(PIN_A0);
-    ball2 = SimAnalogRead(PIN_A1);
-    ball3 = SimAnalogRead(PIN_A2);
-    ball4 = SimAnalogRead(PIN_A3);
-    ball5 = SimAnalogRead(PIN_A4);
+    const unsigned long now = millis();
+    ball1 = AnalogSensorReadStable(PIN_A0);
+    ball2 = AnalogSensorReadStable(PIN_A1);
+    ball3 = AnalogSensorReadStable(PIN_A2);
+    ball4 = AnalogSensorReadStable(PIN_A3);
+    ball5 = AnalogSensorReadStable(PIN_A4);
 
     // FORDITOTT logika (a gepben futott verziobol atveve):
     // alacsony analog ertek = golyo ott van! A kuszob mar nincs bedrotozva,
     // szenzoronkent az EEPROM-bol jon (analogThreshold[], h_analog_test.ino),
     // igy a szerviz menubol hangolhato ujraflashelés nelkul.
-    ballPresent1 = (ball1 < analogThreshold[0]) ? 1 : 0;
+    ballPresent1 = FilterTroughPresence(0, ball1, now) ? 1 : 0;
 
-    ballPresent2 = (ball2 < analogThreshold[1]) ? 1 : 0;
+    ballPresent2 = FilterTroughPresence(1, ball2, now) ? 1 : 0;
 
-    ballPresent3 = (ball3 < analogThreshold[2]) ? 1 : 0;
+    ballPresent3 = FilterTroughPresence(2, ball3, now) ? 1 : 0;
 
-    ballPresent4 = (ball4 < analogThreshold[3]) ? 1 : 0;
+    ballPresent4 = FilterTroughPresence(3, ball4, now) ? 1 : 0;
 
-    ballPresent5 = (ball5 < analogThreshold[4]) ? 1 : 0;
+    ballPresent5 = FilterTroughPresence(4, ball5, now) ? 1 : 0;
 
+      boolean troughSampleValid = true;
       if (BIP != 5){
       BIS = ballPresent1 + ballPresent2 + ballPresent3 + ballPresent4 + ballPresent5;
       }
       else
       {
+        troughSampleValid = false;
         if (ballPresent1 == 1 && ballPresent2 == 0 && ballPresent3 == 0 && ballPresent4 == 0 && ballPresent5 == 0)
         {
           BIS = 1;
+          troughSampleValid = true;
           }
         if (ballPresent1 == 1 && ballPresent2 == 1 && ballPresent3 == 0 && ballPresent4 == 0 && ballPresent5 == 0)
         {
           BIS = 2;
+          troughSampleValid = true;
           }
         if (ballPresent1 == 1 && ballPresent2 == 1 && ballPresent3 == 1 && ballPresent4 == 0 && ballPresent5 == 0)
         {
           BIS = 3;
+          troughSampleValid = true;
           }
         if (ballPresent1 == 1 && ballPresent2 == 1 && ballPresent3 == 1 && ballPresent4 == 1 && ballPresent5 == 0)
         {
           BIS = 4;
+          troughSampleValid = true;
           }
         if (ballPresent1 == 1 && ballPresent2 == 1 && ballPresent3 == 1 && ballPresent4 == 1 && ballPresent5 == 1)
         {
           BIS = 5;
+          troughSampleValid = true;
           }
         if (ballPresent1 == 0 && ballPresent2 == 0 && ballPresent3 == 0 && ballPresent4 == 0 && ballPresent5 == 0)
         {
           BIS = 0;
+          troughSampleValid = true;
           }
         }
 
-    // Csak a TENYLEGES meresek szamitanak: a BallReadState 1 mp-es ablakai
-    // kozott a BIS erteke valtozatlanul all, azt nem szabad megerositesnek
-    // venni. Egyetlen zajos minta nullazza a szamlalot.
-    if (BIS == 5) {
-      if (bisFiveReads == 0) bisFiveSince = millis();
-      if (bisFiveReads < 255) bisFiveReads++;
-    }
-    else {
+    // SpaceCoke alatt csak a fizikailag sorfolytonos tar-minta ervenyes.
+    // Reszleges atmenetnel a regi BIS cache nem lehet drain-bizonyitek.
+    if (!troughSampleValid) {
       bisFiveReads = 0;
       bisFiveSince = 0;
+      bisBelowFiveSince = 0;
+      return;
+    }
+
+    // Drain csak akkor letezhet, ha elotte legalabb 250 ms-ig valoban volt
+    // golyo a palyan (tar < 5). UFO-, shooter-lane- vagy aktiv adagolasi
+    // allapot alatt az 5-os mintat zajnak tekintjuk. A 400 ms-os stabil ido
+    // mar a valos infrak lassu atmenetet is elviseli.
+    if (BIS < 5) {
+      if (bisBelowFiveSince == 0) bisBelowFiveSince = now;
+      if (now - bisBelowFiveSince >= BALL_DRAIN_ARM_MS) ballDrainArmed = HIGH;
+      bisFiveReads = 0;
+      bisFiveSince = 0;
+    }
+    else {
+      bisBelowFiveSince = 0;
+      if (!BallDrainTemporarilyBlocked()) {
+        if (bisFiveReads == 0) bisFiveSince = now;
+        if (bisFiveReads < 255) bisFiveReads++;
+      }
+      else {
+        bisFiveReads = 0;
+        bisFiveSince = 0;
+      }
     }
         
   }
@@ -2048,6 +2216,9 @@ void DisableGameplayCoilsForService() {
 // progresszt vihetne at. A szerviz/drain sajat valtozoit ez nem erinti.
 void ResetAbortedGameplayState() {
   extraball = 0;
+  summaryWaitActive = LOW;
+  summaryWaitStartedAt = 0;
+  nextBallIsExtra = LOW;
   extraBallLit = LOW;
   coopTeamExtraBallAwarded = LOW;
   ballsaversw = LOW;
@@ -2067,6 +2238,7 @@ void ResetAbortedGameplayState() {
   ufoWheelWaiting = LOW;
   ufoWheelResultVoicePlayed = LOW;
   spaceCokeAudioPending = LOW;
+  StopUfoCoilPulse();
   ufosw = LOW;
   ufoshoot = 0;
   spinnersw = 0;
@@ -2111,6 +2283,8 @@ void ResetAbortedGameplayState() {
   shoot = LOW;
   shootfail = 0;
   shootfailchk = LOW;
+  troughMeasurementInhibited = LOW;
+  ResetBallDrainQualification();
   kick = LOW;
   AutoKick = LOW;
   firstplay = HIGH;
@@ -2491,6 +2665,9 @@ void intmMode() {
       runLightStartLed = 68;
       ball = 1;
       player = 1;
+      summaryWaitActive = LOW;
+      summaryWaitStartedAt = 0;
+      nextBallIsExtra = LOW;
       firstplay = HIGH;
       startmus = HIGH;
       BIP = 1;
@@ -2637,6 +2814,8 @@ void intmMode() {
 
 void inittable() {
   if (Inittable == HIGH) {
+    troughMeasurementInhibited = LOW;
+    ResetBallDrainQualification();
     ResetTiltWarningsForBall();
     cncswitch1 = 0;
     cncswitch2 = 0;
@@ -2868,6 +3047,25 @@ void EnsureBallSave(uint32_t minimumMs) {
   }
 }
 
+void StartUfoCoilPulse() {
+  if (ufoCoilPulseActive == HIGH) return;
+  ufoCoilPulseActive = HIGH;
+  ufoCoilPulseStartedAt = millis();
+  digitalWrite(ufoCoil, HIGH);
+}
+
+void UpdateUfoCoilPulse() {
+  if (ufoCoilPulseActive == LOW) return;
+  if (millis() - ufoCoilPulseStartedAt < UFO_COIL_PULSE_MS) return;
+  digitalWrite(ufoCoil, LOW);
+  ufoCoilPulseActive = LOW;
+}
+
+void StopUfoCoilPulse() {
+  digitalWrite(ufoCoil, LOW);
+  ufoCoilPulseActive = LOW;
+}
+
 void StartUfoEjectBallSave(unsigned long minimumMs) {
   if (ufoEjectSaveStarted == LOW) {
     ufoEjectSaveStarted = HIGH;
@@ -2878,6 +3076,9 @@ void StartUfoEjectBallSave(unsigned long minimumMs) {
     // Az altalanos ball-save nem kap kulon effektet: ez kifejezetten az UFO
     // altal visszaadott golyo rovid vedelmet jelzi.
     PlayBakedEffectOnce(25); // UFO Ball Back
+    // Pontosan egy impulzus induljon. A regi UFOO-agak a teljes 0,5 mp-es
+    // utokovetes alatt frame-enkent ujra HIGH->LOW-ra rangattak a kimenetet.
+    StartUfoCoilPulse();
   }
 }
 
@@ -5008,6 +5209,7 @@ void ResumeUfoLotteryAudio() {
 
 void UFOO() {
   unsigned long now = millis();
+  UpdateUfoCoilPulse();
   UpdateSpaceCokeAudioCue();
   if (ufoWheelWaiting) {
     UpdateUfoWheelPresentation();
@@ -5124,89 +5326,68 @@ void UFOO() {
     ufoRejectSirenStarted = HIGH;
   }
 
-  if (ufoshoot == 1 && ufoshoottimer2 < millis() - 4300) {
+  if (ufoshoot == 1 && now - ufoshoottimer2 >= 4300UL) {
     StartUfoEjectBallSave(UFO_EJECT_BALL_SAVE_MS);
-    digitalWrite(ufoCoil, HIGH);
-    if (millis() - 50 > ufoshoottimer + 4300) {
-      digitalWrite(ufoCoil, LOW);
-      if (millis() - 500 > ufoshoottimer + 4300) {
-        ufoshoot = 0;
-        StopFullBakedEffect(); // a loopolo UFO FUCK effekt vege
-        initlight = HIGH;
-        Initlights();
-        if (multiball == 0) {
-          wTrig.trackResume(TRK_THEME);
-        }
-        wTrig.trackPlayPoly(TRK_SHOOTOUTUFO);
-        Score(Scoring::UFO_EJECT_POINTS, Scoring::UFO_EJECT_BONUS);
+    if (now - ufoshoottimer >= 4800UL) {
+      ufoshoot = 0;
+      StopFullBakedEffect(); // a loopolo UFO FUCK effekt vege
+      initlight = HIGH;
+      Initlights();
+      if (multiball == 0) {
+        wTrig.trackResume(TRK_THEME);
       }
+      wTrig.trackPlayPoly(TRK_SHOOTOUTUFO);
+      Score(Scoring::UFO_EJECT_POINTS, Scoring::UFO_EJECT_BONUS);
     }
   }
 
-  if (ufoshoot == 2 && ufoshoottimer2 < millis() - 2000) {
+  if (ufoshoot == 2 && now - ufoshoottimer2 >= 2000UL) {
     StartUfoEjectBallSave(UFO_EJECT_BALL_SAVE_MS);
-    digitalWrite(ufoCoil, HIGH);
-    if (millis() - 50 > ufoshoottimer + 2000) {
-      digitalWrite(ufoCoil, LOW);
-      if (millis() - 500 > ufoshoottimer + 2000) {
-        ufoshoot = 0;
-        if (multiball == 0) {
-          wTrig.trackResume(TRK_THEME);
-        }
-        wTrig.trackPlayPoly(TRK_SHOOTOUTUFO);
-        Score(Scoring::UFO_EJECT_POINTS, Scoring::UFO_EJECT_BONUS);
+    if (now - ufoshoottimer >= 2500UL) {
+      ufoshoot = 0;
+      if (multiball == 0) {
+        wTrig.trackResume(TRK_THEME);
       }
+      wTrig.trackPlayPoly(TRK_SHOOTOUTUFO);
+      Score(Scoring::UFO_EJECT_POINTS, Scoring::UFO_EJECT_BONUS);
     }
   }
 
-  if (ufoshoot == 3 && ufoshoottimer2 < millis() - 1500) {
+  if (ufoshoot == 3 && now - ufoshoottimer2 >= 1500UL) {
     StartUfoEjectBallSave(UFO_EJECT_BALL_SAVE_MS);
-    digitalWrite(ufoCoil, HIGH);
-    if (millis() - 50 > ufoshoottimer + 1500) {
-      digitalWrite(ufoCoil, LOW);
-      if (millis() - 500 > ufoshoottimer + 1500) {
-        ufoshoot = 0;
-        if (multiball == 0) {
-          wTrig.trackResume(TRK_THEME);
-        }
-        wTrig.trackPlayPoly(TRK_SHOOTOUTUFO);
-        Score(Scoring::UFO_EJECT_POINTS, Scoring::UFO_EJECT_BONUS);
+    if (now - ufoshoottimer >= 2000UL) {
+      ufoshoot = 0;
+      if (multiball == 0) {
+        wTrig.trackResume(TRK_THEME);
       }
+      wTrig.trackPlayPoly(TRK_SHOOTOUTUFO);
+      Score(Scoring::UFO_EJECT_POINTS, Scoring::UFO_EJECT_BONUS);
     }
   }
 
   //// Itt ad is az ufo valamit
 
-  if (ufoshoot == 4 && ufoshoottimer2 < millis() - UFO_LOTTERY_HOLD_MS) {
+  if (ufoshoot == 4 && now - ufoshoottimer2 >= UFO_LOTTERY_HOLD_MS) {
     StartUfoEjectBallSave((lottery == 7) ?
                           SPACECOKE_BALL_SAVE_MS : UFO_EJECT_BALL_SAVE_MS);
-    digitalWrite(ufoCoil, HIGH);
-    if (millis() - 50 > ufoshoottimer + UFO_LOTTERY_HOLD_MS) {
-      digitalWrite(ufoCoil, LOW);
-      if (millis() - 700 > ufoshoottimer + 4000) {
-        AwardUfoLottery();
+    if (now - ufoshoottimer >= UFO_LOTTERY_HOLD_MS + UFO_COIL_PULSE_MS) {
+      AwardUfoLottery();
 
+      runLightStartLed = 68;
+      initlight = 1;
+      Initlights();
+      ufoshoot = 0;
 
-        runLightStartLed = 68;
-        initlight = 1;
-        Initlights();
-        ufoshoot = 0;
-
-        ResumeUfoLotteryAudio();
-        RestorePartyShotsForPlayer();
-      }
+      ResumeUfoLotteryAudio();
+      RestorePartyShotsForPlayer();
     }
   }
 
-  if (ufoshoot == 5 && ufoshoottimer2 < millis() - 1500) {
+  if (ufoshoot == 5 && now - ufoshoottimer2 >= 1500UL) {
     StartUfoEjectBallSave(UFO_EJECT_BALL_SAVE_MS);
-    digitalWrite(ufoCoil, HIGH);
-    if (millis() - 50 > ufoshoottimer + 1500) {
-      digitalWrite(ufoCoil, LOW);
-      if (millis() - 500 > ufoshoottimer + 1500) {
-        ufoshoot = 0;
-        Score(Scoring::UFO_EJECT_POINTS, Scoring::UFO_EJECT_BONUS);
-      }
+    if (now - ufoshoottimer >= 2000UL) {
+      ufoshoot = 0;
+      Score(Scoring::UFO_EJECT_POINTS, Scoring::UFO_EJECT_BONUS);
     }
   }
 
@@ -6012,7 +6193,7 @@ void Tilt() {
         digitalWrite(rightFlipperBat, LOW);
         digitalWrite(leftSlingshotCoil, LOW);
         digitalWrite(rightSlingshotCoil, LOW);
-        digitalWrite(ufoCoil, LOW);
+        StopUfoCoilPulse();
         digitalWrite(pop1Coil, LOW);
         digitalWrite(pop2Coil, LOW);
         digitalWrite(pop3Coil, LOW);

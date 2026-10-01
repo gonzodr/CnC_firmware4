@@ -464,6 +464,20 @@ boolean controlOverflow = LOW;
 unsigned long controlLastByteAt = 0;
 
 void HandleControlCmd(const char* s) {
+  if (strncmp(s, "SUMMARY_DONE,", 13) == 0) {
+    uint16_t session = (uint16_t)strtoul(s + 13, NULL, 10);
+    if (session != 0 && session == summarySession && summaryWaitActive == HIGH) {
+      summaryWaitActive = LOW;
+      summaryWaitStartedAt = 0;
+    }
+    // Ujrakuldesnel akkor is ACK-oljuk ugyanazt a sessiont, ha a golyo
+    // kapuja mar az elozo (de a GUI-n elveszett) valaszra feloldott.
+    if (session != 0 && session == summarySession) {
+      Serial.print(F("SUMMARY_ACK,"));
+      Serial.println(session);
+    }
+    return;
+  }
   if (intmon == 4 && strcmp(s, "SERVICE_EXIT") == 0) {
     intmon = 1;
     numofplayers = 1;
@@ -486,6 +500,9 @@ void HandleControlCmd(const char* s) {
     shoot = 0;
     firstplay = HIGH;
     extraball = 0;
+    summaryWaitActive = LOW;
+    summaryWaitStartedAt = 0;
+    nextBallIsExtra = LOW;
     multiball = 0;
     BIP = 1;
     hurryUp = LOW;

@@ -101,17 +101,26 @@ void AnalogThresholdsLoad() {
 }
 
 // Az AVR ADC multiplexere csatornavaltas utan zajos elso mintat adhat. Az
-// elso olvasast eldobjuk, majd harom mintabol mediant veszunk. A SIM_MODE-ban
-// minden minta ugyanaz, igy a probapadi mukodes valtozatlan marad.
+// elso olvasast eldobjuk, majd het mintabol mediant veszunk. Ez a rovid,
+// nagy amplitudoju tuskeket sokkal jobban elnyomja, mint egy egyszeru atlag,
+// de nem blokkolja a fo loopot ugy, mint egy tobb szaz mintas meres.
+// A SIM_MODE-ban minden minta ugyanaz, igy a probapadi mukodes valtozatlan.
 int AnalogSensorReadStable(uint8_t pin) {
   SimAnalogRead(pin);
-  int a = SimAnalogRead(pin);
-  int b = SimAnalogRead(pin);
-  int c = SimAnalogRead(pin);
-  if (a > b) { int t = a; a = b; b = t; }
-  if (b > c) { int t = b; b = c; c = t; }
-  if (a > b) { int t = a; a = b; b = t; }
-  return b;
+  int samples[7];
+  for (uint8_t i = 0; i < 7; i++) {
+    samples[i] = SimAnalogRead(pin);
+  }
+  for (uint8_t i = 1; i < 7; i++) {
+    int value = samples[i];
+    int8_t j = (int8_t)i - 1;
+    while (j >= 0 && samples[j] > value) {
+      samples[j + 1] = samples[j];
+      j--;
+    }
+    samples[j + 1] = value;
+  }
+  return samples[3];
 }
 
 // --- Teszt-mod ---------------------------------------------------------
@@ -237,6 +246,7 @@ void HandleAnalogTestCmd(const char* s) {
     for (uint8_t i = 0; i < ANALOG_SENSOR_COUNT; i++) {
       analogThreshold[i] = staged[i];
     }
+    ResetTroughSensorFilters();
     AnalogThresholdsSave();
     Serial.println("AT_SAVED");
     return;

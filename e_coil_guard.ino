@@ -14,7 +14,7 @@
 // A jateklogikahoz NEM nyul hozza, tisztan raepulo vedelem.
 // Timer5 szabad (regen az AltSoftSerial hasznalta).
 
-#define GUARD_COILS 10
+#define GUARD_COILS 8
 #define GUARD_LOCKOUT 3000 // ms - leoldas utan ennyi ideig tiltva
 
 struct GuardCoil {
@@ -30,7 +30,7 @@ GuardCoil guardCoils[GUARD_COILS];
 volatile uint16_t guardTripPending = 0; // bitmaszk: melyik tekercs oldott le
 const char* const guardNames[GUARD_COILS] = {
   "trough", "shooter", "slingL", "slingR",
-  "pop1", "pop2", "pop3", "ufo", "flipL", "flipR"
+  "pop1", "pop2", "pop3", "ufo"
 };
 
 void CoilGuardAdd(uint8_t idx, uint8_t pin, uint16_t limit_ms) {
@@ -52,8 +52,6 @@ void CoilGuardInit() {
   CoilGuardAdd(5, pop2Coil, 200);           // normal impulzus: 50 ms
   CoilGuardAdd(6, pop3Coil, 200);           // normal impulzus: 50 ms
   CoilGuardAdd(7, ufoCoil, 200);            // normal impulzus: 50 ms
-  CoilGuardAdd(8, leftFlipperBat, 60000);   // golyofogas legit, 60 s utan bug
-  CoilGuardAdd(9, rightFlipperBat, 60000);
 
   // Timer5 beallitasa: CTC mod, 16 MHz / 64 / 250 = 1 kHz
   noInterrupts();
