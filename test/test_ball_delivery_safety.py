@@ -32,7 +32,7 @@ class BallDeliverySafetyTests(unittest.TestCase):
             MAIN,
             r"if \(sidelaneBallsaverSw == HIGH && BIS != 0\) \{\s*"
             r"sidelaneBallsaverSw = LOW;\s*"
-            r"if \(BeginTroughFeed\(\)\)",
+            r"if \(BeginTroughFeedFor\(3\)\)",
         )
 
     def test_drain_requires_armed_stable_full_trough(self):
@@ -91,8 +91,81 @@ class BallDeliverySafetyTests(unittest.TestCase):
         self.assertIn("TROUGH_SENSOR_HYSTERESIS = 12U", MAIN)
         self.assertIn("TROUGH_SENSOR_CONFIRM_READS = 4", MAIN)
         self.assertIn("TROUGH_SENSOR_CONFIRM_MS = 100UL", MAIN)
-        self.assertIn("FilterTroughPresence(0, ball1, now)", MAIN)
+        self.assertIn("FilterTroughPresence(i, rawValues[i], now)", MAIN)
+        self.assertIn("SampleTroughSensors(now, HIGH);", MAIN)
         self.assertIn("ResetTroughSensorFilters();", MAIN)
+
+    def test_trusted_count_never_decreases_from_sensor_samples(self):
+        self.assertIn("int BIS = 0;", MAIN)
+        self.assertIn("BIS--;", MAIN)
+        self.assertIn("if (observed < BIS)", MAIN)
+        self.assertIn("SetTroughFault(2, now)", MAIN)
+        self.assertNotIn(
+            "BIS = ballPresent1 + ballPresent2 + ballPresent3 + ballPresent4 + ballPresent5",
+            MAIN,
+        )
+        reconcile = re.search(
+            r"void ReconcileTrustedTrough\(.*?\) \{(.*?)\n\}", MAIN, re.DOTALL
+        )
+        self.assertIsNotNone(reconcile)
+        self.assertIn("BIS = observed;", reconcile.group(1))
+        self.assertIn("troughArrivalArmed == HIGH", reconcile.group(1))
+        self.assertIn("BallDrainTemporarilyBlocked()", reconcile.group(1))
+        self.assertRegex(
+            reconcile.group(1),
+            r"(?s)BallDrainTemporarilyBlocked\(\)\) \{.*?return;.*?BIS = observed;",
+        )
+
+    def test_impossible_trough_patterns_are_rejected(self):
+        self.assertIn("boolean DecodeTroughStableMask", MAIN)
+        self.assertIn("return mask == expected;", MAIN)
+        self.assertIn("SetTroughFault(1, now)", MAIN)
+        self.assertIn("TROUGH_COUNT_CONFIRM_MS = 450UL", MAIN)
+
+    def test_new_game_rebuilds_trusted_count_from_stable_sensors(self):
+        self.assertIn("void ResetTrustedTroughForNewGame()", MAIN)
+        self.assertIn("trustedTroughInitialized = LOW;", MAIN)
+        self.assertRegex(
+            MAIN,
+            r"(?s)intmon = 0;.*?ResetTrustedTroughForNewGame\(\);.*?ball = 1;",
+        )
+
+    def test_sensor_log_protocol_is_switchable_and_rate_limited(self):
+        control = (ROOT / "d_light_effects.ino").read_text(encoding="utf-8")
+        self.assertIn('strcmp(s, "SENSOR_LOG,START") == 0', control)
+        self.assertIn('strcmp(s, "SENSOR_LOG,STOP") == 0', control)
+        self.assertIn("SENSOR_LOG_INTERVAL_MS = 100UL", MAIN)
+        self.assertIn("SENSOR_LOG,STARTED,ms,a0,a1,a2,a3,a4,a5", MAIN)
+        for column in (
+            "stableMask", "trustedBIS", "rawBIS", "stateFlags", "bip",
+            "intmon", "firstplay", "sidelaneSave", "arrivalArmed",
+            "faultCode", "observedCount", "feedSeq", "lastFeedReason",
+        ):
+            self.assertIn(column, MAIN)
+        self.assertIn('Serial.print(F("SENSOR_DATA,"));', MAIN)
+        self.assertIn('Serial.print(F("SENSOR_FAULT,"));', MAIN)
+
+    def test_sensor_logging_is_observer_only(self):
+        poll = re.search(
+            r"void SensorTelemetryPoll\(\) \{(.*?)\n\}", MAIN, re.DOTALL
+        )
+        self.assertIsNotNone(poll)
+        self.assertIn("SampleTroughSensors(now, LOW);", poll.group(1))
+        self.assertNotIn("UpdateTrustedTroughFromStableMask", poll.group(1))
+
+    def test_arrival_epoch_survives_multiple_monotonic_returns(self):
+        reconcile = re.search(
+            r"void ReconcileTrustedTrough\(.*?\) \{(.*?)\n\}", MAIN, re.DOTALL
+        )
+        self.assertIsNotNone(reconcile)
+        accepted = reconcile.group(1).split("if (troughArrivalArmed == HIGH)", 1)[1]
+        self.assertIn("BIS = observed;", accepted)
+        self.assertNotIn("troughArrivalArmed = LOW", accepted)
+        begin = re.search(
+            r"boolean BeginTroughFeed\(\) \{(.*?)\n\}", MAIN, re.DOTALL
+        )
+        self.assertIn("troughArrivalArmed = LOW;", begin.group(1))
+        self.assertIn("troughFeedSeq++;", begin.group(1))
 
     def test_next_ball_waits_for_gui_summary_done(self):
         control = (ROOT / "d_light_effects.ino").read_text(encoding="utf-8")

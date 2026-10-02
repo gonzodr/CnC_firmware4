@@ -662,6 +662,40 @@ boolean troughSensorCandidate[5] = { LOW, LOW, LOW, LOW, LOW };
 uint8_t troughSensorCandidateReads[5] = { 0, 0, 0, 0, 0 };
 unsigned long troughSensorCandidateSince[5] = { 0, 0, 0, 0, 0 };
 unsigned long troughSensorLastSampleAt[5] = { 0, 0, 0, 0, 0 };
+// A BIS mostantol a jatek altal megbizhatoan ismert (trusted) tar-darabszam.
+// Szenzor soha nem csokkentheti: golyo csak a BeginTroughFeed() esemenyre
+// tavozhat. A szenzorok csak stabil, sorfolytonos VISSZAERKEZEST igazolhatnak.
+// Ezzel egy 0/1 -> 900 felmasodperces infrahiba nem tud fantom golyot
+// eltuntetni, majd a visszaallaskor uj drainnek latszani.
+const uint8_t TROUGH_BALL_COUNT = 5;
+const uint8_t TROUGH_COUNT_CONFIRM_READS = 6;
+const unsigned long TROUGH_COUNT_CONFIRM_MS = 450UL;
+const unsigned long TROUGH_TRUST_MATCH_ARM_MS = 250UL;
+const unsigned long TROUGH_FAULT_REPORT_MS = 1000UL;
+boolean trustedTroughInitialized = LOW;
+boolean troughArrivalArmed = LOW;
+boolean troughExpectedSidelaneArrival = LOW;
+boolean troughObservedValid = LOW;
+boolean troughObservedConfirmed = LOW;
+uint8_t troughObservedCount = 0;
+uint8_t troughStableMask = 0;
+uint8_t troughCountCandidate = 255;
+uint8_t troughCountCandidateReads = 0;
+unsigned long troughCountCandidateSince = 0;
+unsigned long troughTrustedMatchSince = 0;
+uint8_t troughFaultCode = 0;
+unsigned long troughFaultSince = 0;
+boolean troughFaultReported = LOW;
+
+// Kapcsolhato, gepjatek kozben is futo CSV-szeru diagnosztika. A GUI csak
+// akkor ker adatot, amikor a szervizmenu SENSOR LOG kapcsoloja aktiv.
+const unsigned long SENSOR_LOG_INTERVAL_MS = 100UL; // 10 Hz
+boolean sensorLogEnabled = LOW;
+unsigned long sensorLogLastAt = 0;
+int sensorLogRaw[6] = { 0, 0, 0, 0, 0, 0 };
+uint8_t sensorLogRawBIS = 0;
+uint16_t troughFeedSeq = 0;
+uint8_t lastTroughFeedReason = 0;
 boolean ballHandlerSkip = 0;
 boolean shoot = LOW;
 boolean aftermulti = LOW;
@@ -699,7 +733,7 @@ int ballPresent3 = 0;
 int ballPresent4 = 0;
 int ballPresent5 = 0;
 int shootfail = 0;
-int BIS;
+int BIS = 0;
 int BIP;
 int player = 1;       // Player
 int ball = 1;         // Actual Ball number
@@ -1172,6 +1206,7 @@ void loop() {
   SimPoll();         // probapadi szimulator lepteto - eles buildben ures
   AnalogTestPoll();  // analog teszt-stream a szerviz menunek (h_analog_test.ino)
   PollControlSerial(); // Highscore Exit es LT/MG parancsok kozos sorparserben.
+  SensorTelemetryPoll(); // kapcsolhato 10 Hz-es nyers tar/UFO diagnosztika
   ServiceWeedMeter(); // Legfeljebb 25 ms-os I2C probalkozas a jateklogika elott.
 
   if (intmon != 0) { // 1 = attract, 2 = hiscore/nevbevitel, 3 = player select
@@ -1305,6 +1340,26 @@ void ResetTroughSensorFilters() {
     troughSensorCandidateSince[i] = 0;
     troughSensorLastSampleAt[i] = 0;
   }
+  troughStableMask = 0;
+  troughObservedValid = LOW;
+  troughObservedConfirmed = LOW;
+  troughCountCandidate = 255;
+  troughCountCandidateReads = 0;
+  troughCountCandidateSince = 0;
+  troughTrustedMatchSince = 0;
+}
+
+void ResetTrustedTroughForNewGame() {
+  BIS = 0;
+  trustedTroughInitialized = LOW;
+  troughArrivalArmed = LOW;
+  troughExpectedSidelaneArrival = LOW;
+  troughMeasurementInhibited = LOW;
+  troughFaultCode = 0;
+  troughFaultSince = 0;
+  troughFaultReported = LOW;
+  ResetTroughSensorFilters();
+  ResetBallDrainQualification();
 }
 
 boolean FilterTroughPresence(uint8_t index, int value, unsigned long now) {
@@ -1358,17 +1413,277 @@ boolean FilterTroughPresence(uint8_t index, int value, unsigned long now) {
   return troughSensorState[index];
 }
 
+// Egy mechanikailag rendezett tarban a golyok az elso erzekelotol kezdve
+// megszakitas nelkul allnak: 00000, 00001, 00011 ... 11111 (bit0=A0).
+// A 00101-szeru lyukas minta atmenet vagy szenzorhiba, nem golyodarabszam.
+boolean DecodeTroughStableMask(uint8_t mask, uint8_t* count) {
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < TROUGH_BALL_COUNT; i++) {
+    if (mask & (1U << i)) n++;
+  }
+  *count = n;
+  const uint8_t expected = (n == 0) ? 0 : (uint8_t)((1U << n) - 1U);
+  return mask == expected;
+}
+
+// ADC + egyedi Schmitt/debounce. A trusted BIS-t ez meg nem irja at.
+// updateFilter=LOW kell az adagolas utani rendezkedesi ablakban: a nyers
+// diagnosztika ilyenkor is latszik, de a jatek szuroallapota erintetlen.
+void SampleTroughSensors(unsigned long now, boolean updateFilter) {
+  ball1 = AnalogSensorReadStable(PIN_A0);
+  ball2 = AnalogSensorReadStable(PIN_A1);
+  ball3 = AnalogSensorReadStable(PIN_A2);
+  ball4 = AnalogSensorReadStable(PIN_A3);
+  ball5 = AnalogSensorReadStable(PIN_A4);
+
+  sensorLogRaw[0] = ball1;
+  sensorLogRaw[1] = ball2;
+  sensorLogRaw[2] = ball3;
+  sensorLogRaw[3] = ball4;
+  sensorLogRaw[4] = ball5;
+
+  sensorLogRawBIS = 0;
+  const int rawValues[5] = { ball1, ball2, ball3, ball4, ball5 };
+  for (uint8_t i = 0; i < TROUGH_BALL_COUNT; i++) {
+    if (rawValues[i] < analogThreshold[i]) sensorLogRawBIS++;
+  }
+  if (updateFilter == LOW) return;
+
+  troughStableMask = 0;
+  for (uint8_t i = 0; i < TROUGH_BALL_COUNT; i++) {
+    if (FilterTroughPresence(i, rawValues[i], now)) {
+      troughStableMask |= (1U << i);
+    }
+  }
+  ballPresent1 = (troughStableMask & 0x01U) ? 1 : 0;
+  ballPresent2 = (troughStableMask & 0x02U) ? 1 : 0;
+  ballPresent3 = (troughStableMask & 0x04U) ? 1 : 0;
+  ballPresent4 = (troughStableMask & 0x08U) ? 1 : 0;
+  ballPresent5 = (troughStableMask & 0x10U) ? 1 : 0;
+}
+
+void SetTroughFault(uint8_t code, unsigned long now) {
+  if (troughFaultCode != code) {
+    troughFaultCode = code;
+    troughFaultSince = now;
+    troughFaultReported = LOW;
+  }
+}
+
+void ClearTroughFault() {
+  troughFaultCode = 0;
+  troughFaultSince = 0;
+  troughFaultReported = LOW;
+}
+
+// Csak stabil es novekvo fizikai kep modosithatja a trusted szamlalot.
+// A csokkenest kizarolag BeginTroughFeed() vegzi egy konkret tekercspulzushoz
+// kotve. Ha a fizikai kep kevesebbet mutat, megjegyezzuk a hibat, de BIS marad.
+void ReconcileTrustedTrough(uint8_t observed, unsigned long now) {
+  if (trustedTroughInitialized == LOW) {
+    BIS = observed;
+    trustedTroughInitialized = HIGH;
+    troughArrivalArmed = (observed < TROUGH_BALL_COUNT) ? HIGH : LOW;
+    troughTrustedMatchSince = now;
+    ClearTroughFault();
+    ResetBallDrainQualification();
+    return;
+  }
+
+  if (observed == BIS) {
+    if (troughTrustedMatchSince == 0) troughTrustedMatchSince = now;
+    if (BIS < TROUGH_BALL_COUNT &&
+        now - troughTrustedMatchSince >= TROUGH_TRUST_MATCH_ARM_MS) {
+      troughArrivalArmed = HIGH;
+    }
+    ClearTroughFault();
+    return;
+  }
+
+  troughTrustedMatchSince = 0;
+  if (observed < BIS) {
+    // Fontos: ezt akarhany masodpercig produkalhatja egy szakado infra,
+    // a trusted darabszam akkor sem csokkenhet magatol.
+    SetTroughFault(2, now); // fizikai kep kevesebb a trusted szamnal
+    return;
+  }
+
+  if (troughArrivalArmed == HIGH && BallDrainTemporarilyBlocked()) {
+    // A stabil novekedeset megorizzuk; amint a VUK/shooter/feed blokk
+    // megszunik, ugyanez a megerositett minta ujra ide jut es elfogadhato.
+    return;
+  }
+  if (troughArrivalArmed == HIGH) {
+    BIS = observed; // egy mintaveteli ablakban tobb multiball is visszaerhet
+    // Ez egy feed-epoch engedelye, nem one-shot flag: gyors 2->3->4 vagy
+    // kozvetlen 2->4 visszateresnel minden monoton novekedes ervenyes.
+    // Csak a kovetkezo BeginTroughFeed() torli.
+    troughTrustedMatchSince = now;
+    ClearTroughFault();
+    bisFiveReads = 0;
+    bisFiveSince = 0;
+    return;
+  }
+
+  // Novekedes ismert launch vagy stabil, egyezo alapallapot nelkul: peldaul
+  // adagolas utan visszarendezodo golyok fals 5-os mintaja. Fail-safe: varunk.
+  SetTroughFault(3, now);
+}
+
+boolean TroughTrustedPhysicalMatch() {
+  return trustedTroughInitialized == HIGH && troughObservedValid == HIGH &&
+         troughObservedConfirmed == HIGH && troughObservedCount == BIS;
+}
+
+void UpdateTrustedTroughFromStableMask(unsigned long now) {
+  uint8_t observed = 0;
+  troughObservedValid = DecodeTroughStableMask(troughStableMask, &observed);
+  troughObservedCount = observed;
+  if (troughObservedValid == LOW) {
+    troughObservedConfirmed = LOW;
+    troughCountCandidate = 255;
+    troughCountCandidateReads = 0;
+    troughCountCandidateSince = 0;
+    troughTrustedMatchSince = 0;
+    SetTroughFault(1, now); // fizikailag lehetetlen, lyukas tarminta
+    bisFiveReads = 0;
+    bisFiveSince = 0;
+    bisBelowFiveSince = 0;
+    return;
+  }
+
+  if (troughCountCandidate != observed) {
+    troughCountCandidate = observed;
+    troughCountCandidateReads = 1;
+    troughCountCandidateSince = now;
+    troughObservedConfirmed = LOW;
+    return;
+  }
+  if (troughCountCandidateReads < 255) troughCountCandidateReads++;
+  troughObservedConfirmed =
+      (troughCountCandidateReads >= TROUGH_COUNT_CONFIRM_READS &&
+       now - troughCountCandidateSince >= TROUGH_COUNT_CONFIRM_MS);
+  if (troughObservedConfirmed == HIGH) {
+    ReconcileTrustedTrough(observed, now);
+  }
+}
+
+uint16_t TroughSensorStateFlags() {
+  // A GUI CSV-bontasahoz rogzitett bitkiosztas:
+  // 0=inhibit, 1=shoot, 2=kick, 3=shooter switch, 4=UFO busy,
+  // 5=ballsave, 6=multiball, 7=drain armed.
+  uint16_t flags = 0;
+  if (troughMeasurementInhibited == HIGH) flags |= (1U << 0);
+  if (shoot != 0) flags |= (1U << 1);
+  if (kick != 0) flags |= (1U << 2);
+  if (SimDigitalRead(shooterLaneSwitch) == LOW) flags |= (1U << 3);
+  if (ufoshoot != 0 || ufoDetectStartedAt != 0 || ufoWheelWaiting == HIGH) {
+    flags |= (1U << 4);
+  }
+  if (ballsaversw == HIGH) flags |= (1U << 5);
+  if (multiball != 0) flags |= (1U << 6);
+  if (ballDrainArmed == HIGH) flags |= (1U << 7);
+  return flags;
+}
+
+void StartSensorTelemetry() {
+  sensorLogEnabled = HIGH;
+  sensorLogLastAt = 0;
+  troughFaultReported = LOW;
+  // a0..a5 a 7 mintas median ADC-ertek (nem kuszobolt 0/1 allapot).
+  Serial.println(F("SENSOR_LOG,STARTED,ms,a0,a1,a2,a3,a4,a5,stableMask,trustedBIS,rawBIS,stateFlags,bip,intmon,firstplay,sidelaneSave,arrivalArmed,faultCode,observedCount,feedSeq,lastFeedReason"));
+}
+
+void StopSensorTelemetry() {
+  sensorLogEnabled = LOW;
+  Serial.println(F("SENSOR_LOG,STOPPED"));
+}
+
+void SensorTelemetryPoll() {
+  if (sensorLogEnabled == LOW) return;
+  const unsigned long now = millis();
+  if (sensorLogLastAt != 0 && now - sensorLogLastAt < SENSOR_LOG_INTERVAL_MS) return;
+  sensorLogLastAt = now;
+
+  // Szigoruan megfigyelo ut: a logging ON/OFF nem valtoztathatja meg sem a
+  // debounce-ot, sem a trusted szamlalot, sem a drain idoziteset.
+  SampleTroughSensors(now, LOW);
+  sensorLogRaw[5] = AnalogSensorReadStable(PIN_A5);
+
+  Serial.print(F("SENSOR_DATA,"));
+  Serial.print(now);
+  for (uint8_t i = 0; i < 6; i++) {
+    Serial.print(',');
+    Serial.print(sensorLogRaw[i]);
+  }
+  Serial.print(',');
+  Serial.print(troughStableMask);
+  Serial.print(',');
+  Serial.print(BIS);
+  Serial.print(',');
+  Serial.print(sensorLogRawBIS);
+  Serial.print(',');
+  Serial.print(TroughSensorStateFlags());
+  Serial.print(',');
+  Serial.print(BIP);
+  Serial.print(',');
+  Serial.print(intmon);
+  Serial.print(',');
+  Serial.print(firstplay ? 1 : 0);
+  Serial.print(',');
+  Serial.print(sidelaneBallsaverSw ? 1 : 0);
+  Serial.print(',');
+  Serial.print(troughArrivalArmed ? 1 : 0);
+  Serial.print(',');
+  Serial.print(troughFaultCode);
+  Serial.print(',');
+  Serial.print(troughObservedCount);
+  Serial.print(',');
+  Serial.print(troughFeedSeq);
+  Serial.print(',');
+  Serial.println(lastTroughFeedReason);
+
+  if (troughFaultCode != 0 && troughFaultReported == LOW &&
+      now - troughFaultSince >= TROUGH_FAULT_REPORT_MS) {
+    Serial.print(F("SENSOR_FAULT,"));
+    Serial.print(now);
+    Serial.print(',');
+    Serial.print(troughFaultCode);
+    Serial.print(',');
+    Serial.print(troughStableMask);
+    Serial.print(',');
+    Serial.print(BIS);
+    Serial.print(',');
+    Serial.println(troughObservedCount);
+    troughFaultReported = HIGH;
+  }
+}
+
 // A tarbol kiadott golyot azonnal levonjuk. A kovetkezo 1,2 masodpercben a
 // tar infrainak mozgasat nem vesszuk figyelembe; ezalatt a fizikai golyok
 // visszagurulhatnak es ujrarendezodhetnek a sorban.
 boolean BeginTroughFeed() {
-  if (shoot != 0 || BIS <= 0) return false;
+  if (shoot != 0 || trustedTroughInitialized == LOW || BIS <= 0) return false;
   BIS--;
+  troughFeedSeq++;
+  if (troughFeedSeq == 0) troughFeedSeq = 1;
+  troughArrivalArmed = LOW;
+  troughTrustedMatchSince = 0;
+  troughObservedConfirmed = LOW;
+  troughCountCandidate = 255;
+  troughCountCandidateReads = 0;
+  troughCountCandidateSince = 0;
   troughMeasurementInhibited = HIGH;
   troughMeasurementInhibitAt = millis();
   shoottimer = troughMeasurementInhibitAt;
   shoottimer2 = troughMeasurementInhibitAt;
   shoot = 1;
+  return true;
+}
+
+boolean BeginTroughFeedFor(uint8_t reason) {
+  if (!BeginTroughFeed()) return false;
+  lastTroughFeedReason = reason;
   return true;
 }
 
@@ -1398,9 +1713,10 @@ void Ballhandler() {
     //// Firstball
     ////////////////
 
-    if (firstplay == HIGH && summaryWaitActive == LOW && shoot == 0 && BIS == 5) {
+    if (firstplay == HIGH && summaryWaitActive == LOW && shoot == 0 &&
+        BIS == 5 && TroughTrustedPhysicalMatch()) {
       if (BIS + BIP > 5) {
-        if (!BeginTroughFeed()) return;
+        if (!BeginTroughFeedFor(1)) return;
         if (nextBallIsExtra == HIGH) {
           nextBallIsExtra = LOW;
           // Az Extra Ball fix, felismerheto inditohangja csak a tenyleges
@@ -1427,7 +1743,7 @@ void Ballhandler() {
       MIV(HIGH);
       if (BIP != 5) {
         if (BIS + BIP > 5) {
-          if (BeginTroughFeed()) {
+          if (BeginTroughFeedFor(2)) {
             ballSaveFeedStarted = HIGH;
             TriggerHurryHit(HURRY_ZONE_BALLSAVE);
             if (firstplay == LOW) {
@@ -1437,7 +1753,11 @@ void Ballhandler() {
         }
         if (sidelaneBallsaverSw == HIGH && BIS != 0) {
           sidelaneBallsaverSw = LOW;
-          if (BeginTroughFeed()) {
+          if (BeginTroughFeedFor(3)) {
+            // A DAVE lane explicit bizonyitek arra, hogy a megmentett golyo
+            // a tar fele tart. Ez az egyetlen normal jatekbeli kivetel,
+            // amelyhez nem kell elobb observed==trusted baseline.
+            troughArrivalArmed = HIGH;
             ballSaveFeedStarted = HIGH;
             TriggerHurryHit(HURRY_ZONE_BALLSAVE);
             if (firstplay == LOW) {
@@ -1451,7 +1771,9 @@ void Ballhandler() {
       // atveve, a forditott idozites-feltetel javitasaval
       if (BIP == 5) {
         if (BIS + BIP > 5) {
-          if (BIS > 1 && BeginTroughFeed()) {
+          if (BIS > 1 && BeginTroughFeedFor(4)) {
+            maxBallSw = LOW;
+            troughExpectedSidelaneArrival = LOW;
             TriggerHurryHit(HURRY_ZONE_BALLSAVE);
             if (firstplay == LOW) {
               startmus = LOW;
@@ -1460,11 +1782,15 @@ void Ballhandler() {
           if (BIS == 1 && maxBallSw == LOW) {
             maxBallSw = HIGH;
             maxBallSwTimer = millis();
+            troughExpectedSidelaneArrival = LOW;
           }
         }
         if (sidelaneBallsaverSw == HIGH && BIS != 0) {
           sidelaneBallsaverSw = LOW;
-          if (BIS > 1 && BeginTroughFeed()) {
+          if (BIS > 1 && BeginTroughFeedFor(3)) {
+            troughArrivalArmed = HIGH;
+            maxBallSw = LOW;
+            troughExpectedSidelaneArrival = LOW;
             TriggerHurryHit(HURRY_ZONE_BALLSAVE);
             if (firstplay == LOW) {
               startmus = LOW;
@@ -1473,16 +1799,21 @@ void Ballhandler() {
           if (BIS == 1 && maxBallSw == LOW) {
             maxBallSw = HIGH;
             maxBallSwTimer = millis();
+            troughExpectedSidelaneArrival = HIGH;
           }
         }
         if (maxBallSw == HIGH && millis() - maxBallSwTimer > 1000) {
-          if (BeginTroughFeed()) {
+          if (BeginTroughFeedFor(4)) {
+            if (troughExpectedSidelaneArrival == HIGH) {
+              troughArrivalArmed = HIGH;
+            }
             TriggerHurryHit(HURRY_ZONE_BALLSAVE);
             if (firstplay == LOW) {
               startmus = LOW;
             }
           }
           maxBallSw = LOW;
+          troughExpectedSidelaneArrival = LOW;
         }
       }
       // Csak a tenyleges, egygolyos ball save kap Cheech-bemondast.
@@ -1511,6 +1842,7 @@ void Ballhandler() {
         StopHurryUpLights();
         StopHurryUpBakedOverlay();
         maxBallSw = LOW;
+        troughExpectedSidelaneArrival = LOW;
         BIP = 1;
 
         if (numofplayers == player && ball == 3 && extraball == 0) {
@@ -1696,6 +2028,14 @@ void Ballhandler() {
       }
       kick = 0;
       shoot = 0;
+      // A kick csak zarva latott shooter-lane kapcsolobol indulhatott, tehat
+      // bizonyitja, hogy az elozo feed tenyleg kijutott a tarbol. Ettol az
+      // epochtol kezdve akar tobb gyors multiball-visszateres is elfogadhato;
+      // az engedelyt csak a kovetkezo BeginTroughFeed() torli.
+      if (trustedTroughInitialized == HIGH && BIS < TROUGH_BALL_COUNT) {
+        troughArrivalArmed = HIGH;
+        troughTrustedMatchSince = millis();
+      }
       shootfail = 0;
     }
   }
@@ -1732,68 +2072,14 @@ void MIV(boolean m) {
   }
   if (BallReadState == HIGH || m == HIGH) {
     const unsigned long now = millis();
-    ball1 = AnalogSensorReadStable(PIN_A0);
-    ball2 = AnalogSensorReadStable(PIN_A1);
-    ball3 = AnalogSensorReadStable(PIN_A2);
-    ball4 = AnalogSensorReadStable(PIN_A3);
-    ball5 = AnalogSensorReadStable(PIN_A4);
+    SampleTroughSensors(now, HIGH);
+    UpdateTrustedTroughFromStableMask(now);
 
-    // FORDITOTT logika (a gepben futott verziobol atveve):
-    // alacsony analog ertek = golyo ott van! A kuszob mar nincs bedrotozva,
-    // szenzoronkent az EEPROM-bol jon (analogThreshold[], h_analog_test.ino),
-    // igy a szerviz menubol hangolhato ujraflashelés nelkul.
-    ballPresent1 = FilterTroughPresence(0, ball1, now) ? 1 : 0;
-
-    ballPresent2 = FilterTroughPresence(1, ball2, now) ? 1 : 0;
-
-    ballPresent3 = FilterTroughPresence(2, ball3, now) ? 1 : 0;
-
-    ballPresent4 = FilterTroughPresence(3, ball4, now) ? 1 : 0;
-
-    ballPresent5 = FilterTroughPresence(4, ball5, now) ? 1 : 0;
-
-      boolean troughSampleValid = true;
-      if (BIP != 5){
-      BIS = ballPresent1 + ballPresent2 + ballPresent3 + ballPresent4 + ballPresent5;
-      }
-      else
-      {
-        troughSampleValid = false;
-        if (ballPresent1 == 1 && ballPresent2 == 0 && ballPresent3 == 0 && ballPresent4 == 0 && ballPresent5 == 0)
-        {
-          BIS = 1;
-          troughSampleValid = true;
-          }
-        if (ballPresent1 == 1 && ballPresent2 == 1 && ballPresent3 == 0 && ballPresent4 == 0 && ballPresent5 == 0)
-        {
-          BIS = 2;
-          troughSampleValid = true;
-          }
-        if (ballPresent1 == 1 && ballPresent2 == 1 && ballPresent3 == 1 && ballPresent4 == 0 && ballPresent5 == 0)
-        {
-          BIS = 3;
-          troughSampleValid = true;
-          }
-        if (ballPresent1 == 1 && ballPresent2 == 1 && ballPresent3 == 1 && ballPresent4 == 1 && ballPresent5 == 0)
-        {
-          BIS = 4;
-          troughSampleValid = true;
-          }
-        if (ballPresent1 == 1 && ballPresent2 == 1 && ballPresent3 == 1 && ballPresent4 == 1 && ballPresent5 == 1)
-        {
-          BIS = 5;
-          troughSampleValid = true;
-          }
-        if (ballPresent1 == 0 && ballPresent2 == 0 && ballPresent3 == 0 && ballPresent4 == 0 && ballPresent5 == 0)
-        {
-          BIS = 0;
-          troughSampleValid = true;
-          }
-        }
-
-    // SpaceCoke alatt csak a fizikailag sorfolytonos tar-minta ervenyes.
-    // Reszleges atmenetnel a regi BIS cache nem lehet drain-bizonyitek.
-    if (!troughSampleValid) {
+    // A drain-minositeshez a fizikai kepnek is stabilan, ervenyesen EGYEZNIE
+    // kell a trusted szammal. Egy tartos 900-as fals jel tehat nemcsak BIS-t
+    // nem csokkent, de a korabbi full-tar idozitest sem hagyja tovabbfutni.
+    const boolean trustedPhysicalMatch = TroughTrustedPhysicalMatch();
+    if (!trustedPhysicalMatch) {
       bisFiveReads = 0;
       bisFiveSince = 0;
       bisBelowFiveSince = 0;
@@ -1804,7 +2090,7 @@ void MIV(boolean m) {
     // golyo a palyan (tar < 5). UFO-, shooter-lane- vagy aktiv adagolasi
     // allapot alatt az 5-os mintat zajnak tekintjuk. A 400 ms-os stabil ido
     // mar a valos infrak lassu atmenetet is elviseli.
-    if (BIS < 5) {
+    if (BIS < TROUGH_BALL_COUNT) {
       if (bisBelowFiveSince == 0) bisBelowFiveSince = now;
       if (now - bisBelowFiveSince >= BALL_DRAIN_ARM_MS) ballDrainArmed = HIGH;
       bisFiveReads = 0;
@@ -2284,6 +2570,8 @@ void ResetAbortedGameplayState() {
   shootfail = 0;
   shootfailchk = LOW;
   troughMeasurementInhibited = LOW;
+  troughExpectedSidelaneArrival = LOW;
+  maxBallSw = LOW;
   ResetBallDrainQualification();
   kick = LOW;
   AutoKick = LOW;
@@ -2310,6 +2598,10 @@ void BeginServiceAbort() {
   // ebben a frame-ben menu-re valt, nem var a drainre.
   AbortMunchiesForService();
   ResetAbortedGameplayState();
+  // A megszakitott jatek golyoit most szandekosan visszatereljuk a tarba.
+  // A trusted szamot nem nullazzuk, de engedelyezzuk a stabil novekedeseket.
+  troughArrivalArmed = HIGH;
+  troughTrustedMatchSince = 0;
   wTrig.stopAllTracks();
   DisableGameplayCoilsForService();
   intmon = 4;
@@ -2353,7 +2645,7 @@ void ServiceAbortUpdate() {
   // visszaert, a jatek mar attract-kesz, de az intmon=4 marad: igy a GUI
   // menuje es a negy fizikai gomb tovabbra is hasznalhato a kilepesig.
   MIV(HIGH);
-  if (BIS == 5) {
+  if (BIS == 5 && TroughTrustedPhysicalMatch()) {
     if (serviceAbortFullSince == 0) serviceAbortFullSince = now;
     if (now - serviceAbortFullSince >= 500UL) {
       serviceAbortActive = LOW;
@@ -2663,6 +2955,9 @@ void intmMode() {
       delay(300);
       intmon = 0;
       runLightStartLed = 68;
+      // Ne induljon elozo attract/jatek stale BIS=5 cache-bol. Az elso
+      // adagolas elott ujra kell epulnie egy stabil, sorfolytonos tarmintanak.
+      ResetTrustedTroughForNewGame();
       ball = 1;
       player = 1;
       summaryWaitActive = LOW;
@@ -6198,6 +6493,9 @@ void Tilt() {
         digitalWrite(pop2Coil, LOW);
         digitalWrite(pop3Coil, LOW);
         digitalWrite(shooterlaneCoil, LOW);
+        // Tilt utan a jatek veget ert: minden kint levo golyo jogosan terhet
+        // vissza, es egy gyors multiball-drainnel is el kell jutnunk az 5-ig.
+        troughArrivalArmed = HIGH;
         while (BIS != 5) {
             MIV(HIGH);
             RunLightEffect();

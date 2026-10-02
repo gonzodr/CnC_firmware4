@@ -464,6 +464,14 @@ boolean controlOverflow = LOW;
 unsigned long controlLastByteAt = 0;
 
 void HandleControlCmd(const char* s) {
+  if (strcmp(s, "SENSOR_LOG,START") == 0) {
+    StartSensorTelemetry();
+    return;
+  }
+  if (strcmp(s, "SENSOR_LOG,STOP") == 0) {
+    StopSensorTelemetry();
+    return;
+  }
   if (strncmp(s, "SUMMARY_DONE,", 13) == 0) {
     uint16_t session = (uint16_t)strtoul(s + 13, NULL, 10);
     if (session != 0 && session == summarySession && summaryWaitActive == HIGH) {
