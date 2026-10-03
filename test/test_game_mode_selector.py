@@ -89,10 +89,22 @@ class GameModeSelectorTests(unittest.TestCase):
         self.assertIn('Serial.print(F("GAME_MODE,"));', SOURCE)
         self.assertIn('Serial.print(F("GAME_START,"));', SOURCE)
         self.assertIn("GAME_MODE_SNAPSHOT_MS = 500UL", SOURCE)
-        self.assertRegex(
-            SOURCE,
-            r"SendGameStart\(\);\s*Serial\.println\(\"Zero\"\);",
-        )
+        start = SOURCE.split("// 2. start: jatek inditasa", 1)[1].split(
+            "// A groove egyszer fut le.", 1
+        )[0]
+        self.assertLess(start.index("SendGameStart();"),
+                        start.index('Serial.println("Zero");'))
+
+    def test_arcade_has_two_games_and_explicit_submenu_protocol(self):
+        self.assertIn("ARCADE_MUNCHIES = 0", SOURCE)
+        self.assertIn("ARCADE_PUFF_N_RIFF", SOURCE)
+        for command in ("ARCADE_ENTER", "ARCADE_STATE", "ARCADE_CONFIRM"):
+            self.assertIn(f'SendArcadeState(F("{command}"));', SOURCE)
+        self.assertIn('Serial.println(F("ARCADE_EXIT"));', SOURCE)
+        self.assertIn("StepSelectedArcadeGame(-1);", SOURCE)
+        self.assertIn("StepSelectedArcadeGame(1);", SOURCE)
+        self.assertIn('Serial.println(F("GUITAR_SOLO_START"));', SOURCE)
+        self.assertIn("runningArcadeGame = selectedArcadeGame;", SOURCE)
 
 
 if __name__ == "__main__":

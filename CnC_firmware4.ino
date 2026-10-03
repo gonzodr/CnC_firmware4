@@ -759,6 +759,15 @@ GameMode runningGameMode = GAME_STANDARD;
 const uint8_t GAME_MODE_COUNT = 5;
 const uint8_t GAME_MODE_MASK_ALL = (1U << GAME_MODE_COUNT) - 1U;
 
+enum ArcadeGame : uint8_t {
+  ARCADE_MUNCHIES = 0,
+  ARCADE_PUFF_N_RIFF,
+  ARCADE_GAME_COUNT
+};
+
+ArcadeGame selectedArcadeGame = ARCADE_MUNCHIES;
+ArcadeGame runningArcadeGame = ARCADE_MUNCHIES;
+
 enum WeedMultiballStartContext : uint8_t {
   WEED_MB_FROM_QUALIFICATION = 0,
   WEED_MB_FROM_CHALLENGE
@@ -1031,6 +1040,7 @@ boolean selArmSw = LOW;
 boolean selShootSw = LOW;
 boolean selLeftSw = LOW;
 boolean selRightSw = LOW;
+boolean arcadeMenuActive = LOW;
 unsigned long selShootTimer = 0;
 unsigned long selTimeoutTimer = 0;
 boolean modeSelectGrooveSeenPlaying = LOW;
@@ -2760,9 +2770,42 @@ void SendGameModeState() {
   selModeLastSendAt = millis();
 }
 
+void SendArcadeState(const __FlashStringHelper* command) {
+  Serial.print(command);
+  Serial.print(',');
+  Serial.println((uint8_t)selectedArcadeGame);
+  selModeLastSendAt = millis();
+}
+
+void StepSelectedArcadeGame(int8_t direction) {
+  int8_t candidate = (int8_t)selectedArcadeGame + direction;
+  if (candidate < 0) candidate = ARCADE_GAME_COUNT - 1;
+  if (candidate >= ARCADE_GAME_COUNT) candidate = 0;
+  selectedArcadeGame = (ArcadeGame)candidate;
+}
+
+void EnterArcadeMenu() {
+  arcadeMenuActive = HIGH;
+  selectedArcadeGame = ARCADE_MUNCHIES;
+  selTimeoutTimer = millis();
+  wTrig.trackPlayPoly(TRK_MODE_SELECT_WOOSH);
+  wTrig.trackPlayPoly(TRK_PUNCH);
+  wTrig.trackPlayPoly(TRK_KVAKK);
+  SendArcadeState(F("ARCADE_ENTER"));
+}
+
+void ExitArcadeMenu() {
+  arcadeMenuActive = LOW;
+  selTimeoutTimer = millis();
+  wTrig.trackPlayPoly(TRK_MODE_SELECT_WOOSH);
+  Serial.println(F("ARCADE_EXIT"));
+  SendGameModeState();
+}
+
 void SendGameStart() {
   NormalizeSelectedGameMode();
   runningGameMode = selectedGameMode;
+  runningArcadeGame = selectedArcadeGame;
   Serial.print(F("GAME_START,"));
   Serial.print((uint8_t)runningGameMode);
   Serial.print(',');
@@ -2868,6 +2911,9 @@ void intmMode() {
       numofplayers = 1;
       selectedGameMode = GAME_STANDARD;
       runningGameMode = GAME_STANDARD;
+      selectedArcadeGame = ARCADE_MUNCHIES;
+      runningArcadeGame = ARCADE_MUNCHIES;
+      arcadeMenuActive = LOW;
       selArmSw = LOW;          // az inditashoz elobb el kell engedni a startot
       selShootSw = HIGH;       // a shoot gombot is elesiteni kell
       selLeftSw = (SimDigitalRead(leftFlipperButton) == LOW) ? HIGH : LOW;
@@ -2888,7 +2934,8 @@ void intmMode() {
   if (intmon == 3) {
     SendData(); // folyamatos pontszam/jatekosszam kuldes a GUI-nak
     if (millis() - selModeLastSendAt >= GAME_MODE_SNAPSHOT_MS) {
-      SendGameModeState();
+      if (arcadeMenuActive == HIGH) SendArcadeState(F("ARCADE_STATE"));
+      else SendGameModeState();
     }
 
     if (selArmSw == LOW && SimDigitalRead(startButton) == HIGH) {
@@ -2903,14 +2950,19 @@ void intmMode() {
       selShootSw = HIGH;
       selShootTimer = millis();
       selTimeoutTimer = millis();
-      numofplayers = numofplayers + 1;
-      if (numofplayers == 5) {
-        numofplayers = 1;
+      if (arcadeMenuActive == HIGH) {
+        ExitArcadeMenu();
       }
-      NormalizeSelectedGameMode();
-      wTrig.trackPlayPoly(TRK_ADDPLAYER);
-      SendData();
-      SendGameModeState();
+      else {
+        numofplayers = numofplayers + 1;
+        if (numofplayers == 5) {
+          numofplayers = 1;
+        }
+        NormalizeSelectedGameMode();
+        wTrig.trackPlayPoly(TRK_ADDPLAYER);
+        SendData();
+        SendGameModeState();
+      }
     }
 
     if (selLeftSw == HIGH && millis() - selLeftTimer > 120UL &&
@@ -2926,31 +2978,48 @@ void intmMode() {
       selLeftSw = HIGH;
       selLeftTimer = millis();
       selTimeoutTimer = millis();
-      StepSelectedGameMode(-1);
+      if (arcadeMenuActive == HIGH) StepSelectedArcadeGame(-1);
+      else StepSelectedGameMode(-1);
       wTrig.trackPlayPoly(TRK_KEYLEFT);
       wTrig.trackPlayPoly(TRK_MODE_SELECT_WOOSH);
-      SendGameModeState();
+      if (arcadeMenuActive == HIGH) SendArcadeState(F("ARCADE_STATE"));
+      else SendGameModeState();
     }
     if (SimDigitalRead(rightflipperButton) == LOW && selRightSw == LOW) {
       selRightSw = HIGH;
       selRightTimer = millis();
       selTimeoutTimer = millis();
-      StepSelectedGameMode(1);
+      if (arcadeMenuActive == HIGH) StepSelectedArcadeGame(1);
+      else StepSelectedGameMode(1);
       wTrig.trackPlayPoly(TRK_KEYRIGHT);
       wTrig.trackPlayPoly(TRK_MODE_SELECT_WOOSH);
-      SendGameModeState();
+      if (arcadeMenuActive == HIGH) SendArcadeState(F("ARCADE_STATE"));
+      else SendGameModeState();
     }
 
     // 2. start: jatek inditasa a kivalasztott jatekosszammal
     if (selArmSw == HIGH && SimDigitalRead(startButton) == LOW) {
-      SendGameModeConfirm();
-      PlaySelectedGameModeConfirmation();
+      if (selectedGameMode == GAME_MUNCHIES && arcadeMenuActive == LOW) {
+        EnterArcadeMenu();
+        selArmSw = LOW;
+        return;
+      }
+      if (arcadeMenuActive == HIGH) {
+        SendArcadeState(F("ARCADE_CONFIRM"));
+        wTrig.trackStop(TRK_MUS_MODE_SELECT);
+        wTrig.trackPlayPoly(TRK_MODE_SELECTED);
+      }
+      else {
+        SendGameModeConfirm();
+        PlaySelectedGameModeConfirmation();
+      }
       // A GUI ezalatt a kivalasztott mode-artot finoman meguti, 1.6
       // masodpercig nyugalomban tartja, majd 0.65 masodperc alatt kifakitja.
       // A teljes kesleltetes utan indul csak a tenyleges jatek.
       delay(MODE_SELECT_CONFIRM_MS);
       wTrig.trackPlayPoly(TRK_WEED);
       SendGameStart();
+      arcadeMenuActive = LOW;
       Serial.println("Zero");
       delay(300);
       intmon = 0;
@@ -3018,7 +3087,12 @@ void intmMode() {
         StartMayhemChallenge();
       }
       else if (runningGameMode == GAME_MUNCHIES) {
-        StartStandaloneMunchiesChallenge();
+        if (runningArcadeGame == ARCADE_MUNCHIES) {
+          StartStandaloneMunchiesChallenge();
+        }
+        else if (runningArcadeGame == ARCADE_PUFF_N_RIFF) {
+          Serial.println(F("GUITAR_SOLO_START"));
+        }
       }
     }
 
@@ -3038,6 +3112,9 @@ void intmMode() {
       numofplayers = 1;
       selectedGameMode = GAME_STANDARD;
       runningGameMode = GAME_STANDARD;
+      selectedArcadeGame = ARCADE_MUNCHIES;
+      runningArcadeGame = ARCADE_MUNCHIES;
+      arcadeMenuActive = LOW;
       heysoundtimer = millis();
       Serial.println("Attract"); // GUI: attract-loop ujraindul
       delay(20);
