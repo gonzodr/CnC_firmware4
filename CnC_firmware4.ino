@@ -775,7 +775,8 @@ enum WeedMultiballStartContext : uint8_t {
 
 enum MunchiesStartContext : uint8_t {
   MUNCHIES_FROM_VUK = 0,
-  MUNCHIES_STANDALONE_CHALLENGE
+  MUNCHIES_STANDALONE_CHALLENGE,
+  PUFF_STANDALONE_CHALLENGE
 };
 // Timers
 unsigned long shoottimer = 0;
@@ -1244,8 +1245,8 @@ void loop() {
       // A standalone challenge sajat lifecycle-ja alatt nincs fizikai
       // golyojatek; ugyanaz a MunchiesUpdate kezeli a cabinet inputot.
       if (MunchiesOwnsGameLoop()) MunchiesUpdate();
-      digitalWrite(leftFlipperBat, LOW);
-      digitalWrite(rightFlipperBat, LOW);
+      DisableGameplayCoilsForService();
+      digitalWrite(ufoCoil, LOW);
     }
     else if (MunchiesOwnsGameLoop()) {
       // A golyo a VUK-ban parkol: a fizikai jateklogika es a flippertekercsek
@@ -3091,7 +3092,7 @@ void intmMode() {
           StartStandaloneMunchiesChallenge();
         }
         else if (runningArcadeGame == ARCADE_PUFF_N_RIFF) {
-          Serial.println(F("GUITAR_SOLO_START"));
+          StartStandaloneMunchiesChallenge();
         }
       }
     }

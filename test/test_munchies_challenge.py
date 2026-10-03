@@ -24,7 +24,7 @@ class MunchiesChallengeTests(unittest.TestCase):
             "munchiesStartContext == MUNCHIES_STANDALONE_CHALLENGE", MODE
         )
         standalone = MODE.split(
-            "if (munchiesStartContext == MUNCHIES_STANDALONE_CHALLENGE)", 1
+            "if (munchiesStartContext == MUNCHIES_STANDALONE_CHALLENGE", 1
         )[1].split("unsigned long now", 1)[0]
         self.assertIn("digitalWrite(ufoCoil, LOW);", standalone)
         self.assertIn("StandaloneMunchiesRunFinished();", standalone)

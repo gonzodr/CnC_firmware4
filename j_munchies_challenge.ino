@@ -1,4 +1,4 @@
-// Standalone Munchies Challenge lifecycle. The minigame itself remains in
+// Standalone Arcade lifecycle (Munchies and Puff). The session remains in
 // g_munchies_mode.ino; this coordinator only sequences players and results.
 
 enum StandaloneMunchiesState : uint8_t {
@@ -25,7 +25,12 @@ void BeginStandaloneMunchiesPlayer() {
   Serial.println(player);
   // A minijateknak sajat introja es 3-2-1 visszaszamlalasa van, ezert a
   // firmware nem var elotte meg egy masodik countdownra.
-  StartMunchiesMode(MUNCHIES_STANDALONE_CHALLENGE);
+  if (runningArcadeGame == ARCADE_PUFF_N_RIFF) {
+    StartMunchiesMode(PUFF_STANDALONE_CHALLENGE);
+  }
+  else {
+    StartMunchiesMode(MUNCHIES_STANDALONE_CHALLENGE);
+  }
 }
 
 void StartStandaloneMunchiesChallenge() {

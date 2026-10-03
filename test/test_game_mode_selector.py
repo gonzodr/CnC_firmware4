@@ -103,7 +103,9 @@ class GameModeSelectorTests(unittest.TestCase):
         self.assertIn('Serial.println(F("ARCADE_EXIT"));', SOURCE)
         self.assertIn("StepSelectedArcadeGame(-1);", SOURCE)
         self.assertIn("StepSelectedArcadeGame(1);", SOURCE)
-        self.assertIn('Serial.println(F("GUITAR_SOLO_START"));', SOURCE)
+        mode = (Path(__file__).resolve().parents[1] / "g_munchies_mode.ino").read_text(encoding="utf-8")
+        self.assertIn('F("GUITAR_SOLO_START,")', mode)
+        self.assertIn("StartStandaloneMunchiesChallenge();", SOURCE)
         self.assertIn("runningArcadeGame = selectedArcadeGame;", SOURCE)
 
 

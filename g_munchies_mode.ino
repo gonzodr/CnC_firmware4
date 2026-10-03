@@ -54,6 +54,10 @@ const unsigned long MG_READY_TIMEOUT_MS = 3000UL;
 const unsigned long MG_LINK_TIMEOUT_MS = 5000UL;
 const unsigned long MG_ABSOLUTE_TIMEOUT_MS = 230000UL;
 const unsigned long MG_INPUT_PERIOD_MS = 50UL;
+const unsigned long PUFF_READY_TIMEOUT_MS = 90000UL;
+uint8_t puffRawInputMask = 0;
+uint8_t puffStableInputMask = 0;
+unsigned long puffInputChangedAt = 0;
 
 boolean MunchiesOwnsGameLoop() {
   return munchiesMode != MG_IDLE;
@@ -86,7 +90,8 @@ boolean MunchiesWaitingForUfoClear() {
 }
 
 void SendMunchiesStart() {
-  Serial.print("MG_START,");
+  Serial.print(munchiesStartContext == PUFF_STANDALONE_CHALLENGE
+      ? F("GUITAR_SOLO_START,") : F("MG_START,"));
   Serial.println(munchiesSession);
   munchiesLastStartAt = millis();
 }
@@ -111,7 +116,7 @@ void StartMunchiesLight(uint8_t state) {
 
 void StartMunchiesMode(uint8_t context) {
   if (munchiesMode != MG_IDLE) return;
-  if (context > MUNCHIES_STANDALONE_CHALLENGE) context = MUNCHIES_FROM_VUK;
+  if (context > PUFF_STANDALONE_CHALLENGE) context = MUNCHIES_FROM_VUK;
 
   munchiesStartContext = context;
   munchiesSession++;
@@ -119,7 +124,7 @@ void StartMunchiesMode(uint8_t context) {
   munchiesMode = MG_WAIT_READY;
   munchiesModeStartedAt = millis();
   munchiesPausedAt = munchiesModeStartedAt;
-  munchiesLastPiAt = 0;
+  munchiesLastPiAt = munchiesModeStartedAt;
   munchiesInputSequence = 0;
   munchiesLastInputMask = 0xFF;
   munchiesLight = MG_LIGHT_IDLE;
@@ -132,7 +137,16 @@ void StartMunchiesMode(uint8_t context) {
   digitalWrite(leftFlipperBat, LOW);
   digitalWrite(rightFlipperBat, LOW);
   digitalWrite(ufoCoil, LOW);
-  wTrig.trackPause(TRK_THEME);
+  if (context == PUFF_STANDALONE_CHALLENGE) {
+    DisableGameplayCoilsForService();
+    wTrig.stopAllTracks(); // A Puff soundtrack is played by the Pi.
+    puffRawInputMask = ReadMunchiesInputMask();
+    puffStableInputMask = puffRawInputMask;
+    puffInputChangedAt = millis();
+  }
+  else {
+    wTrig.trackPause(TRK_THEME);
+  }
   SendMunchiesStart();
 }
 
@@ -142,7 +156,8 @@ void BeginMunchiesEject() {
   // Standalone challenge-ben nincs golyo az UFO-ban: a kozos minigame-et
   // lezárjuk, de sem VUK-tekercset, sem normal jatek Ball Save-ot nem inditunk.
   // A challenge eredmeny/player sequencing a kesobbi koordinator feladata.
-  if (munchiesStartContext == MUNCHIES_STANDALONE_CHALLENGE) {
+  if (munchiesStartContext == MUNCHIES_STANDALONE_CHALLENGE
+      || munchiesStartContext == PUFF_STANDALONE_CHALLENGE) {
     munchiesMode = MG_IDLE;
     munchiesLight = MG_LIGHT_IDLE;
     munchiesWaitForUfoClear = false;
@@ -218,6 +233,11 @@ void HandleMunchiesCommand(const char* command) {
     munchiesMode = MG_ACTIVE;
     munchiesModeStartedAt = millis();
     munchiesLastPiAt = munchiesModeStartedAt;
+    if (munchiesStartContext == PUFF_STANDALONE_CHALLENGE) {
+      puffRawInputMask = ReadMunchiesInputMask();
+      puffStableInputMask = puffRawInputMask;
+      puffInputChangedAt = millis();
+    }
     SendMunchiesInput(ReadMunchiesInputMask());
     return;
   }
@@ -237,7 +257,9 @@ void HandleMunchiesCommand(const char* command) {
     return;
   }
 
-  if (strcmp(verb, "MG_ALIVE") == 0 && munchiesMode == MG_ACTIVE) {
+  if (strcmp(verb, "MG_ALIVE") == 0 && (munchiesMode == MG_ACTIVE
+      || (munchiesMode == MG_WAIT_READY
+          && munchiesStartContext == PUFF_STANDALONE_CHALLENGE))) {
     munchiesLastPiAt = millis();
     return;
   }
@@ -267,7 +289,8 @@ void HandleMunchiesCommand(const char* command) {
     unsigned long earned = strtoul(bonusToken, &endp, 10);
     if (*endp != '\0') return;
 
-    if (munchiesStartContext == MUNCHIES_STANDALONE_CHALLENGE) {
+    if (munchiesStartContext == MUNCHIES_STANDALONE_CHALLENGE
+        || munchiesStartContext == PUFF_STANDALONE_CHALLENGE) {
       // Challenge leaderboard: a minijatek pontos eredmenye, palyai 2x vagy
       // mas normal-game modositok nelkul.
       AddAwardedScore(earned, 0);
@@ -289,7 +312,10 @@ void MunchiesUpdate() {
 
   if (munchiesMode == MG_WAIT_READY) {
     if (now - munchiesLastStartAt >= 500UL) SendMunchiesStart();
-    if (now - munchiesModeStartedAt >= MG_READY_TIMEOUT_MS) {
+    const boolean puff = munchiesStartContext == PUFF_STANDALONE_CHALLENGE;
+    const unsigned long readyTimeout = puff ? PUFF_READY_TIMEOUT_MS : MG_READY_TIMEOUT_MS;
+    if (now - munchiesModeStartedAt >= readyTimeout
+        || (puff && now - munchiesLastPiAt >= 10000UL)) {
       SendMunchiesAbort("READY_TIMEOUT");
       BeginMunchiesEject();
     }
@@ -298,6 +324,15 @@ void MunchiesUpdate() {
 
   if (munchiesMode == MG_ACTIVE) {
     uint8_t mask = ReadMunchiesInputMask();
+    if (munchiesStartContext == PUFF_STANDALONE_CHALLENGE) {
+      // Short contact debounce; keep press AND release edges for sustain notes.
+      if (mask != puffRawInputMask) {
+        puffRawInputMask = mask;
+        puffInputChangedAt = now;
+      }
+      if (now - puffInputChangedAt >= 10UL) puffStableInputMask = mask;
+      mask = puffStableInputMask;
+    }
     if (mask != munchiesLastInputMask || now - munchiesLastInputAt >= MG_INPUT_PERIOD_MS) {
       SendMunchiesInput(mask);
     }
