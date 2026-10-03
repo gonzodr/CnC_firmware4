@@ -8,9 +8,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SKETCH = (ROOT / "CnC_firmware4.ino").read_text(encoding="utf-8")
 LIGHTS = (ROOT / "d_light_effects.ino").read_text(encoding="utf-8")
-GUI = (
-    ROOT.parent / "CnC Pinball GUI V3 Python" / "src" / "state_machine.py"
-).read_text(encoding="utf-8")
+GUI_ROOT = next(path for path in (
+    ROOT.parent / "CnC Pinball GUI V3 Python",
+    ROOT.parent / "CnC-Pinball-GUI-V3",
+) if (path / "src" / "state_machine.py").is_file())
+GUI = (GUI_ROOT / "src" / "state_machine.py").read_text(encoding="utf-8")
 
 
 class HighscoreSerialI2CTests(unittest.TestCase):
